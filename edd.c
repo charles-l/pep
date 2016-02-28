@@ -39,6 +39,8 @@ int m_next_line(struct buf *b);
 int m_prev_line(struct buf *b);
 int m_eol(struct buf *b);
 int m_bol(struct buf *b);
+int e_delete_line(struct buf *b);
+int e_insert(struct buf *b);
 void input(struct buf *b);
 line *load_file(struct buf *b, const char *fname);
 void display(struct buf *b);
@@ -143,6 +145,33 @@ int m_next_line(struct buf *b) {
 	return 0;
 }
 
+int e_delete_line(struct buf *b) {
+	if(b->cur->n)
+		b->cur->n->p = b->cur->p;
+	if(b->cur->p)
+		b->cur->p->n = b->cur->n;
+	free(b->cur->s);
+	free(b->cur);
+	b->cur = b->cur->n;
+	return 0;
+}
+
+int e_insert(struct buf *b) {
+	char i[256]; // FIXME: longer strings will overflow
+	echo();
+	getstr(i); 										// TODO: use custom getstr function that:
+	noecho();										//       1. uses escape to exit instead and...
+	size_t l = strlen(b->cur->s) + strlen(i);		//       2. properly shifts input forward
+	char *n = malloc(l);
+	strncpy(n, b->cur->s, b->linepos);
+	n[b->linepos] = '\0';
+	strcat(n, i);
+	strcat(n, b->cur->s + b->linepos);
+	free(b->cur->s);
+	b->cur->s = n;
+	return 0;
+}
+
 void input(struct buf *b) {
 	switch(getch()) {
 		case 'k':
@@ -168,6 +197,12 @@ void input(struct buf *b) {
 			break;
 		case '^':
 			m_bol(b);
+			break;
+		case 'd':
+			e_delete_line(b);
+			break;
+		case 'i':
+			e_insert(b);
 			break;
 	}
 }
