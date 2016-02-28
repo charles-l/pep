@@ -8,6 +8,7 @@
 #include <fcntl.h>
 
 #define ERROR(x) fprintf(stderr, "edd: %s", x);
+
 #define MAXLINE 512
 
 typedef struct line { // double linked list
@@ -37,20 +38,29 @@ char get_nc(struct buf *b) {
 	return b->cur->s[b->linepos];
 }
 
-void eol(struct buf *b) {
-	for(b->linepos = 0; !eol_char(b->cur->s[b->linepos + 1]); b->linepos++);
+char get_pc(struct buf *b) {
+	if(b->linepos == 0) return get_c(b);
+	return b->cur->s[b->linepos - 1];
 }
 
-void next_char(struct buf *b) {
+void m_next_char(struct buf *b) {
 	if(!eol_char(b->cur->s[b->linepos + 1])) {
 		b->linepos++;
 	}
 }
 
-void prev_char(struct buf *b) {
+void m_prev_char(struct buf *b) {
 	if(b->linepos > 0) {
 		b->linepos--;
 	}
+}
+
+void m_eol(struct buf *b) {
+	for(b->linepos = 0; !eol_char(b->cur->s[b->linepos + 1]); b->linepos++);
+}
+
+void m_bol(struct buf *b) {
+	b->linepos = 0;
 }
 
 void prev_line(struct buf *b) {
@@ -59,7 +69,7 @@ void prev_line(struct buf *b) {
 		b->cur = b->cur->p;
 		b->line--;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
-			eol(b);
+			m_eol(b);
 	}
 }
 
@@ -70,7 +80,7 @@ void next_line(struct buf *b) {
 		b->cur = b->cur->n;
 		b->line++;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
-			eol(b);
+			m_eol(b);
 	}
 }
 
@@ -84,13 +94,16 @@ void input(struct buf *b) {
 			next_line(b);
 			break;
 		case 'l':
-			next_char(b);
+			m_next_char(b);
 			break;
 		case 'h':
-			prev_char(b);
+			m_prev_char(b);
 			break;
 		case '$':
-			eol(b);
+			m_eol(b);
+			break;
+		case '^':
+			m_bol(b);
 			break;
 	}
 }
@@ -119,7 +132,20 @@ line *load_file(struct buf *b, const char *fname) {
 void display(struct buf *b) {
 	line *l = b->first;
 	for(int i = 0; l != NULL; l = l->n, i++)
-		mvaddstr(i, 0, l->s);
+	{
+		if(i > LINES - 1) break; // TODO: don't use LINES to allow for rescaling
+		move(i, 0);
+		for(char *c = l->s; c[0] != '\0'; c++) {
+			switch(c[0]) {
+				case '\t':
+					addstr(" "); // TODO: fixme
+					break;
+				default:
+					addch(c[0]);
+					break;
+			}
+		}
+	}
 	move(b->line, b->linepos);
 	refresh();
 }
