@@ -18,19 +18,53 @@ typedef struct line { // double linked list
 
 struct buf {
 	line *first;
+	line *cur;
 	line *last;
-	int line;
-	int linepos;
+	int line;         // display line on screen
+	int linepos;      // position on line
 };
+
+void next_char(struct buf *b) {
+	if(b->cur->s[b->linepos + 1] != '\0' && b->cur->s[b->linepos + 1] != '\n') {
+		b->linepos++;
+	}
+}
+
+void prev_char(struct buf *b) {
+	if(b->linepos > 0) {
+		b->linepos--;
+	}
+}
+
+void prev_line(struct buf *b) {
+	if(b->cur->p) {
+		b->cur = b->cur->p;
+		b->line--;
+	}
+}
+
+void next_line(struct buf *b) {
+	if(b->cur->n)
+	{
+		b->cur = b->cur->n;
+		b->line++;
+	}
+}
 
 void input(struct buf *b) {
 	switch(getch())
 	{
 		case 'k':
-			b->line--;
+			prev_line(b);
 			break;
 		case 'j':
-			b->line++;
+			next_line(b);
+			break;
+		case 'l':
+			next_char(b);
+			break;
+		case 'h':
+			prev_char(b);
 			break;
 	}
 }
@@ -60,7 +94,7 @@ void display(struct buf *b) {
 	line *l = b->first;
 	for(int i = 0; l != NULL; l = l->n, i++)
 		mvaddstr(i, 0, l->s);
-	move(b->line, 0);
+	move(b->line, b->linepos);
 	refresh();
 }
 
@@ -69,8 +103,9 @@ int main(void) {
 	if((win = initscr()) == NULL) {fprintf(stderr, "error initializing ncurses");}
 	noecho();
 
-	struct buf b = {NULL, NULL, 0, 0};
+	struct buf b = {NULL, NULL, NULL, 0, 0};
 	line *n = load_file(&b, "./edd.c");
+	b.cur = b.first;
 
 	while(1) {
 		display(&b);
