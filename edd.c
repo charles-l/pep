@@ -22,9 +22,26 @@ struct buf {
 	line *first;
 	line *cur;
 	line *last;
+	line *scroll;     // top of current scroll position
 	int line;         // display line on screen
 	int linepos;      // position on line
 };
+
+int eol_char(char c);
+char get_c(struct buf *b);
+char get_nc(struct buf *b);
+char get_pc(struct buf *b);
+int m_next_word(struct buf *b);
+int m_prev_word(struct buf *b);
+int m_next_char(struct buf *b);
+int m_prev_char(struct buf *b);
+int m_next_line(struct buf *b);
+int m_prev_line(struct buf *b);
+int m_eol(struct buf *b);
+int m_bol(struct buf *b);
+void input(struct buf *b);
+line *load_file(struct buf *b, const char *fname);
+void display(struct buf *b);
 
 int eol_char(char c) {
 	return c == '\0' || c == '\n';
@@ -65,6 +82,19 @@ int m_next_word(struct buf *b) {
 	return 1; // shouldn't get here
 }
 
+int m_prev_word(struct buf *b) {
+	if(m_prev_char(b))
+		if(!isalpha(get_c(b)) && !isspace(get_c(b)))
+			return 1;
+		else
+			return m_prev_word(b);
+	else {
+		m_prev_line(b);
+		return m_eol(b);
+	}
+	return 1; // shouldn't get here
+}
+
 int m_prev_char(struct buf *b) {
 	if(b->linepos > 0) {
 		b->linepos--;
@@ -87,7 +117,10 @@ int m_prev_line(struct buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->p;
-		b->line--;
+		if(b->line == 0)
+			b->scroll = b->scroll->p;
+		else
+			b->line--;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
 		return 1;
@@ -96,11 +129,13 @@ int m_prev_line(struct buf *b) {
 }
 
 int m_next_line(struct buf *b) {
-	if(b->cur->n)
-	{
+	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
-		b->line++;
+		if(b->line >= LINES - 1)
+			b->scroll = b->scroll->n;
+		else
+			b->line++;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
 		return 1;
@@ -109,8 +144,7 @@ int m_next_line(struct buf *b) {
 }
 
 void input(struct buf *b) {
-	switch(getch())
-	{
+	switch(getch()) {
 		case 'k':
 			m_prev_line(b);
 			break;
@@ -125,6 +159,9 @@ void input(struct buf *b) {
 			break;
 		case 'w':
 			m_next_word(b);
+			break;
+		case 'b':
+			m_prev_word(b);
 			break;
 		case '$':
 			m_eol(b);
@@ -157,9 +194,8 @@ line *load_file(struct buf *b, const char *fname) {
 }
 
 void display(struct buf *b) {
-	line *l = b->first;
-	for(int i = 0; l != NULL; l = l->n, i++)
-	{
+	line *l = b->scroll;
+	for(int i = 0; l != NULL; l = l->n, i++) {
 		if(i > LINES - 1) break; // TODO: don't use LINES to allow for rescaling
 		move(i, 0);
 		for(char *c = l->s; c[0] != '\0'; c++) {
@@ -184,7 +220,9 @@ int main(void) {
 
 	struct buf b = {NULL, NULL, NULL, 0, 0};
 	line *n = load_file(&b, "./edd.c");
+
 	b.cur = b.first;
+	b.scroll = b.first;
 
 	while(1) {
 		display(&b);
