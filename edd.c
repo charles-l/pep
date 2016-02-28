@@ -24,8 +24,25 @@ struct buf {
 	int linepos;      // position on line
 };
 
+int eol_char(char c) {
+	return c == '\0' || c == '\n';
+}
+
+char get_c(struct buf *b) {
+	return b->cur->s[b->linepos];
+}
+
+char get_nc(struct buf *b) {
+	if(get_c(b) == '\0') return '\0';
+	return b->cur->s[b->linepos];
+}
+
+void eol(struct buf *b) {
+	for(b->linepos = 0; !eol_char(b->cur->s[b->linepos + 1]); b->linepos++);
+}
+
 void next_char(struct buf *b) {
-	if(b->cur->s[b->linepos + 1] != '\0' && b->cur->s[b->linepos + 1] != '\n') {
+	if(!eol_char(b->cur->s[b->linepos + 1])) {
 		b->linepos++;
 	}
 }
@@ -38,16 +55,22 @@ void prev_char(struct buf *b) {
 
 void prev_line(struct buf *b) {
 	if(b->cur->p) {
+		int oldpos = b->linepos;
 		b->cur = b->cur->p;
 		b->line--;
+		if(oldpos > ((int) strlen(b->cur->s) - 2))
+			eol(b);
 	}
 }
 
 void next_line(struct buf *b) {
 	if(b->cur->n)
 	{
+		int oldpos = b->linepos;
 		b->cur = b->cur->n;
 		b->line++;
+		if(oldpos > ((int) strlen(b->cur->s) - 2))
+			eol(b);
 	}
 }
 
@@ -65,6 +88,9 @@ void input(struct buf *b) {
 			break;
 		case 'h':
 			prev_char(b);
+			break;
+		case '$':
+			eol(b);
 			break;
 	}
 }
