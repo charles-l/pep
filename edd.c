@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <ctype.h>
 
 #define ERROR(x) fprintf(stderr, "edd: %s", x);
 
@@ -43,37 +44,58 @@ char get_pc(struct buf *b) {
 	return b->cur->s[b->linepos - 1];
 }
 
-void m_next_char(struct buf *b) {
+int m_next_char(struct buf *b) {
 	if(!eol_char(b->cur->s[b->linepos + 1])) {
 		b->linepos++;
+		return 1;
 	}
+	return 0;
 }
 
-void m_prev_char(struct buf *b) {
+int m_next_word(struct buf *b) {
+	if(m_next_char(b))
+		if(!isalpha(get_c(b)) && !isspace(get_c(b)))
+			return 1;
+		else
+			return m_next_word(b);
+	else {
+		m_next_line(b);
+		return m_bol(b);
+	}
+	return 1; // shouldn't get here
+}
+
+int m_prev_char(struct buf *b) {
 	if(b->linepos > 0) {
 		b->linepos--;
+		return 1;
 	}
+	return 0;
 }
 
-void m_eol(struct buf *b) {
+int m_eol(struct buf *b) {
 	for(b->linepos = 0; !eol_char(b->cur->s[b->linepos + 1]); b->linepos++);
+	return 1;
 }
 
-void m_bol(struct buf *b) {
+int m_bol(struct buf *b) {
 	b->linepos = 0;
+	return 1;
 }
 
-void prev_line(struct buf *b) {
+int m_prev_line(struct buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->p;
 		b->line--;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
+		return 1;
 	}
+	return 0;
 }
 
-void next_line(struct buf *b) {
+int m_next_line(struct buf *b) {
 	if(b->cur->n)
 	{
 		int oldpos = b->linepos;
@@ -81,23 +103,28 @@ void next_line(struct buf *b) {
 		b->line++;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
+		return 1;
 	}
+	return 0;
 }
 
 void input(struct buf *b) {
 	switch(getch())
 	{
 		case 'k':
-			prev_line(b);
+			m_prev_line(b);
 			break;
 		case 'j':
-			next_line(b);
+			m_next_line(b);
 			break;
 		case 'l':
 			m_next_char(b);
 			break;
 		case 'h':
 			m_prev_char(b);
+			break;
+		case 'w':
+			m_next_word(b);
 			break;
 		case '$':
 			m_eol(b);
