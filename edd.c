@@ -147,14 +147,9 @@ int m_next_line(struct buf *b) {
 	return 0;
 }
 
-int e_delete_line(struct buf *b) {
-	if(b->cur->n)
-		b->cur->n->p = b->cur->p;
-	if(b->cur->p)
-		b->cur->p->n = b->cur->n;
-	free(b->cur->s);
-	free(b->cur);
-	b->cur = b->cur->n;
+// TODO: support line deletes
+int e_delete(struct buf *b, char *start, char *end) {
+	// TODO: delete from start to end
 	return 0;
 }
 
@@ -180,7 +175,7 @@ char *insert_str(struct buf *b) {
 	return r;
 }
 
-int e_insert(struct buf *b) {
+int e_insert(struct buf *b) { // TODO: refactor
 	char *i = insert_str(b);
 	size_t l = strlen(b->cur->s) + strlen(i);
 	char *n = malloc(l);
@@ -194,8 +189,8 @@ int e_insert(struct buf *b) {
 	return 0;
 }
 
-void input(struct buf *b) {
-	switch(getch()) {
+int do_motion (struct buf *b, char c) {
+	switch(c) {
 		case 'k':
 			m_prev_line(b);
 			break;
@@ -220,12 +215,24 @@ void input(struct buf *b) {
 		case '^':
 			m_bol(b);
 			break;
+		default:
+			return 0;
+	}
+	return 1;
+}
+
+void input(struct buf *b) {
+	char c;
+	switch(c = getch()) {
 		case 'd':
 			e_delete_line(b);
 			break;
 		case 'i':
 			e_insert(b);
 			break;
+		default:
+			if(do_motion(b, c))
+				break;
 	}
 }
 
