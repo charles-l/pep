@@ -12,6 +12,8 @@
 
 #define MAXLINE 512
 
+#define KEY_ESC 27
+
 typedef struct line { // double linked list
 	char *s;
 	struct line *n;   // next
@@ -156,12 +158,31 @@ int e_delete_line(struct buf *b) {
 	return 0;
 }
 
+char *insert_str(struct buf *b) {
+	char *r = malloc(256); // FIXME: could overflow
+	r[0] = '\0';
+	int i = 1;
+	char c;
+	while((c = getch()) != KEY_ESC) {
+		switch(c) {
+			default:
+				r[i - 1] = c;
+				r[i++] = '\0';
+				move(b->line, 0);
+				addnstr(b->cur->s, b->linepos);
+				addstr(r);
+				addstr(b->cur->s + b->linepos);
+				move(b->line, b->linepos + i - 1);
+				refresh();
+				break;
+		}
+	}
+	return r;
+}
+
 int e_insert(struct buf *b) {
-	char i[256]; // FIXME: longer strings will overflow
-	echo();
-	getstr(i); 										// TODO: use custom getstr function that:
-	noecho();										//       1. uses escape to exit instead and...
-	size_t l = strlen(b->cur->s) + strlen(i);		//       2. properly shifts input forward
+	char *i = insert_str(b);
+	size_t l = strlen(b->cur->s) + strlen(i);
 	char *n = malloc(l);
 	strncpy(n, b->cur->s, b->linepos);
 	n[b->linepos] = '\0';
@@ -169,6 +190,7 @@ int e_insert(struct buf *b) {
 	strcat(n, b->cur->s + b->linepos);
 	free(b->cur->s);
 	b->cur->s = n;
+	b->linepos = b->linepos + strlen(i) - 1;
 	return 0;
 }
 
