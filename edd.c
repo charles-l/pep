@@ -236,7 +236,7 @@ int swap(pos *s, pos *e) {
 #define EDIT_MOTION(edit, motion) s = get_pos(b);        \
 								  d = motion;	         \
 								  e = get_pos(b);        \
-							      if(d < 0) swap(&s, &e);\
+							      if(d<0) swap(&s, &e);  \
 								  edit(b, s, e);         \
 								  b->linepos = s.p;
 
@@ -247,19 +247,15 @@ void input(struct buf *b) {
 	int d;  // direction
 	switch(c = getch()) {
 		case 'd':
-			s = get_pos(b);
-			d = do_motion(b, getch());
-			e = get_pos(b);
-			if(d<0) swap(&s, &e);
-			e_delete(b, s, e);
-			b->linepos = s.p;
-			//EDIT_MOTION(e_delete, do_motion(b, getch()));
+			EDIT_MOTION(e_delete, do_motion(b, getch()));
+			clrtoeol();
 			break;
 		case 'i':
 			e_insert(b);
 			break;
 		case 'x':
 			EDIT_MOTION(e_delete, m_next_char(b));
+			clrtoeol();
 			break;
 		default:
 			if(do_motion(b, c))
@@ -301,6 +297,8 @@ void display(struct buf *b) {
 				case '\n':
 					addstr(".");
 					break;
+				case '\0':
+					addstr("0");
 				default:
 					addch(c[0]);
 					break;
