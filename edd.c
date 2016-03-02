@@ -149,7 +149,7 @@ int m_next_line(struct buf *b) {
 
 // TODO: support line deletes
 int e_delete(struct buf *b, char *start, char *end) {
-	// TODO: delete from start to end
+	memmove(start, end, strlen(end) + 1);
 	return 0;
 }
 
@@ -221,15 +221,30 @@ int do_motion (struct buf *b, char c) {
 	return 1;
 }
 
+#define MOTION_EDIT(motion, edit)	o = b->linepos; \
+									s = b->cur->s + b->linepos; \
+									motion; \
+									e = b->cur->s + b->linepos; \
+									edit(b, s, e); \
+									b->linepos = o;
+
+
 void input(struct buf *b) {
 	char c;
+	char *s;
+	char *e;
+	int o;
 	switch(c = getch()) {
 		case 'd':
-			e_delete_line(b);
+			//TODO: handle reverse motinos
+			//TODO: handle multiple lines
+			MOTION_EDIT(do_motion(b, getch()), e_delete);
 			break;
 		case 'i':
 			e_insert(b);
 			break;
+		case 'x':
+			MOTION_EDIT(m_next_char(b), e_delete);
 		default:
 			if(do_motion(b, c))
 				break;
