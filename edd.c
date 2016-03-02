@@ -8,11 +8,13 @@
 #include <fcntl.h>
 #include <ctype.h>
 
+// configs
+#define MAXLINE 1024  // maximum possible line length
+#define TABSTOP 3     // width of tab
+
+///////////
 #define ERROR(x) fprintf(stderr, "edd: %s", x);
-
-#define MAXLINE 512
-
-#define KEY_ESC 27
+#define KEY_ESC 27    // escape keycode
 
 typedef struct line { // double linked list
 	char *s;
@@ -21,8 +23,8 @@ typedef struct line { // double linked list
 } line;
 
 typedef struct {
-	line *l; // line
-	int p;   // linepos
+	line *l; 		  // line
+	int p;   		  // linepos
 } pos;
 
 struct buf {
@@ -126,9 +128,10 @@ int m_prev_line(struct buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->p;
-		if(b->line == 0)
+		if(b->line == 0) {
 			b->scroll = b->scroll->p;
-		else
+			scrl(-1);
+		} else
 			b->line--;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
@@ -141,9 +144,10 @@ int m_next_line(struct buf *b) {
 	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
-		if(b->line >= LINES - 1)
+		if(b->line >= LINES - 1) {
 			b->scroll = b->scroll->n;
-		else
+			scrl(1);
+		} else
 			b->line++;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
@@ -295,10 +299,8 @@ void display(struct buf *b) {
 					addstr(" "); // TODO: fixme
 					break;
 				case '\n':
-					addstr(".");
+					addstr("$");
 					break;
-				case '\0':
-					addstr("0");
 				default:
 					addch(c[0]);
 					break;
@@ -313,6 +315,7 @@ int main(void) {
 	WINDOW *win;
 	if((win = initscr()) == NULL) {fprintf(stderr, "error initializing ncurses");}
 	noecho();
+	scrollok(win, 1);
 
 	struct buf b = {NULL, NULL, NULL, 0, 0};
 	line *n = load_file(&b, "./edd.c");
