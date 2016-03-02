@@ -20,6 +20,11 @@ typedef struct line { // double linked list
 	struct line *p;   // prev
 } line;
 
+typedef struct {
+	line *l; // line
+	int p;   // linepos
+} pos;
+
 struct buf {
 	line *first;
 	line *cur;
@@ -33,15 +38,15 @@ int eol_char(char c);
 char get_c(struct buf *b);
 char get_nc(struct buf *b);
 char get_pc(struct buf *b);
-int m_next_word(struct buf *b);
-int m_prev_word(struct buf *b);
+int m_next_word(struct buf *b);   		// motions just move the cursor
+int m_prev_word(struct buf *b);			// motions *must* return the driection they went
 int m_next_char(struct buf *b);
 int m_prev_char(struct buf *b);
 int m_next_line(struct buf *b);
 int m_prev_line(struct buf *b);
 int m_eol(struct buf *b);
 int m_bol(struct buf *b);
-int e_delete_line(struct buf *b);
+int e_delete_line(struct buf *b);       // edits use track motions and operate in the in-between text
 int e_insert(struct buf *b);
 void input(struct buf *b);
 line *load_file(struct buf *b, const char *fname);
@@ -83,28 +88,28 @@ int m_next_word(struct buf *b) {
 		m_next_line(b);
 		return m_bol(b);
 	}
-	return 1; // shouldn't get here
+	return 1;
 }
 
 int m_prev_word(struct buf *b) {
 	if(m_prev_char(b))
 		if(!isalpha(get_c(b)) && !isspace(get_c(b)))
-			return 1;
+			return -1;
 		else
 			return m_prev_word(b);
 	else {
 		m_prev_line(b);
 		return m_eol(b);
 	}
-	return 1; // shouldn't get here
+	return -1;
 }
 
 int m_prev_char(struct buf *b) {
 	if(b->linepos > 0) {
 		b->linepos--;
-		return 1;
+		return -1;
 	}
-	return 0;
+	return -1;
 }
 
 int m_eol(struct buf *b) {
@@ -114,7 +119,7 @@ int m_eol(struct buf *b) {
 
 int m_bol(struct buf *b) {
 	b->linepos = 0;
-	return 1;
+	return -1;
 }
 
 int m_prev_line(struct buf *b) {
@@ -127,7 +132,7 @@ int m_prev_line(struct buf *b) {
 			b->line--;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
-		return 1;
+		return -1;
 	}
 	return 0;
 }
@@ -147,9 +152,12 @@ int m_next_line(struct buf *b) {
 	return 0;
 }
 
+#define START (start.l->s + start.p)
+#define END	  (end.l->s + end.p)
+
 // TODO: support line deletes
-int e_delete(struct buf *b, char *start, char *end) {
-	memmove(start, end, strlen(end) + 1);
+int e_delete(struct buf *b, pos start, pos end) {
+	memmove(START, END, strlen(END) + 1);
 	return 0;
 }
 
@@ -189,62 +197,70 @@ int e_insert(struct buf *b) { // TODO: refactor
 	return 0;
 }
 
-int do_motion (struct buf *b, char c) {
+int do_motion (struct buf *b, char c) { // returns direction of motion
 	switch(c) {
 		case 'k':
-			m_prev_line(b);
-			break;
+			return m_prev_line(b);
 		case 'j':
-			m_next_line(b);
-			break;
+			return m_next_line(b);
 		case 'l':
-			m_next_char(b);
-			break;
+			return m_next_char(b);
 		case 'h':
-			m_prev_char(b);
-			break;
+			return m_prev_char(b);
 		case 'w':
-			m_next_word(b);
-			break;
+			return m_next_word(b);
 		case 'b':
-			m_prev_word(b);
-			break;
+			return m_prev_word(b);
 		case '$':
-			m_eol(b);
-			break;
+			return m_eol(b);
 		case '^':
-			m_bol(b);
-			break;
+			return m_bol(b);
 		default:
 			return 0;
 	}
+}
+
+pos get_pos(struct buf *b) {
+	pos p = {b->cur, b->linepos};
+	return p;
+}
+
+int swap(pos *s, pos *e) {
+	pos t;
+	t = *e;
+	*e = *s;
+	*s = t;
 	return 1;
 }
 
-#define MOTION_EDIT(motion, edit)	o = b->linepos; \
-									s = b->cur->s + b->linepos; \
-									motion; \
-									e = b->cur->s + b->linepos; \
-									edit(b, s, e); \
-									b->linepos = o;
-
+#define EDIT_MOTION(edit, motion) s = get_pos(b);        \
+								  d = motion;	         \
+								  e = get_pos(b);        \
+							      if(d < 0) swap(&s, &e);\
+								  edit(b, s, e);         \
+								  b->linepos = s.p;
 
 void input(struct buf *b) {
-	char c;
-	char *s;
-	char *e;
-	int o;
+	char c; // character input
+	pos s;  // start
+	pos e;  // end
+	int d;  // direction
 	switch(c = getch()) {
 		case 'd':
-			//TODO: handle reverse motinos
-			//TODO: handle multiple lines
-			MOTION_EDIT(do_motion(b, getch()), e_delete);
+			s = get_pos(b);
+			d = do_motion(b, getch());
+			e = get_pos(b);
+			if(d<0) swap(&s, &e);
+			e_delete(b, s, e);
+			b->linepos = s.p;
+			//EDIT_MOTION(e_delete, do_motion(b, getch()));
 			break;
 		case 'i':
 			e_insert(b);
 			break;
 		case 'x':
-			MOTION_EDIT(m_next_char(b), e_delete);
+			EDIT_MOTION(e_delete, m_next_char(b));
+			break;
 		default:
 			if(do_motion(b, c))
 				break;
@@ -281,6 +297,9 @@ void display(struct buf *b) {
 			switch(c[0]) {
 				case '\t':
 					addstr(" "); // TODO: fixme
+					break;
+				case '\n':
+					addstr(".");
 					break;
 				default:
 					addch(c[0]);
