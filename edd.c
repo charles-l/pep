@@ -48,7 +48,7 @@ int m_next_line(struct buf *b);
 int m_prev_line(struct buf *b);
 int m_eol(struct buf *b);
 int m_bol(struct buf *b);
-int e_delete_line(struct buf *b);       // edits use track motions and operate in the in-between text
+int e_delete(struct buf *b, pos start, pos end); // track motions and operate on the in-between text
 int e_insert(struct buf *b);
 void input(struct buf *b);
 line *load_file(struct buf *b, const char *fname);
@@ -159,19 +159,33 @@ int m_next_line(struct buf *b) {
 #define START (start.l->s + start.p)
 #define END	  (end.l->s + end.p)
 
-char *eos(char *c) {
-	while(c[0] != '\0') c++;
-	return c;
+int eos(char *c) {
+	int i = 0;
+	while(c[0] != '\0') {c++; i++;}
+	return i;
+}
+
+int delete_line(struct buf *b, line *l) {
+	if(l->p) l->p->n = l->n ? l->n : NULL;
+	if(l->n) l->n->p = l->p ? l->p : NULL;
+
+	if(l == b->scroll) b->scroll = b->scroll->n;
+	if(l == b->cur)    b->cur = b->cur->n;
+
+	free(l->s);
+	free(l); l = NULL;
+	clrtobot();
 }
 
 int e_delete(struct buf *b, pos start, pos end) {
 	if(start.l == end.l)
 		memmove(START, END, strlen(END) + 1);
-	else {                                            // FIXME: TODO: err... general bugginess in this vicinity
-		char *es = eos(START);
-		memmove(START, es, es - START - 1); 	      // FUTURE BUGS MAY BE THE RESULT OF THIS LINE
-		for(line *l = start.l; l != end.l; l = l->n); // SCRATCH THAT. IT MAY BE THIS ENTIRE CHUNK
-		memmove(end.l, END, end.p);
+	else {
+		// for visual selection:
+		//int i = eos(start.l->s);
+		//e_delete(b, start, (pos) {start.l, i});
+		for(line *l = start.l; l != end.l->n; l = l->n) delete_line(b, l);
+		b->line--; // fix cursor
 	}
 	return 0;
 }
@@ -212,6 +226,27 @@ int e_insert(struct buf *b) { // TODO: refactor
 	return 0;
 }
 
+pos get_pos(struct buf *b) {
+	pos p = {b->cur, b->linepos};
+	return p;
+}
+
+int swap(pos *s, pos *e) {
+	pos t;
+	t = *e;
+	*e = *s;
+	*s = t;
+	return 1;
+}
+
+#define EDIT_MOTION(edit, motion) s = get_pos(b);        \
+								  d = motion;	         \
+								  e = get_pos(b);        \
+							      if(d<0) swap(&s, &e);  \
+								  edit(b, s, e);         \
+								  b->linepos = s.p;
+
+// motions get handled here:
 int do_motion (struct buf *b, char c) { // returns direction of motion
 	switch(c) {
 		case 'k':
@@ -235,26 +270,7 @@ int do_motion (struct buf *b, char c) { // returns direction of motion
 	}
 }
 
-pos get_pos(struct buf *b) {
-	pos p = {b->cur, b->linepos};
-	return p;
-}
-
-int swap(pos *s, pos *e) {
-	pos t;
-	t = *e;
-	*e = *s;
-	*s = t;
-	return 1;
-}
-
-#define EDIT_MOTION(edit, motion) s = get_pos(b);        \
-								  d = motion;	         \
-								  e = get_pos(b);        \
-							      if(d<0) swap(&s, &e);  \
-								  edit(b, s, e);         \
-								  b->linepos = s.p;
-
+// other input gets handled here:
 void input(struct buf *b) {
 	char c; // character input
 	pos s;  // start
@@ -262,7 +278,12 @@ void input(struct buf *b) {
 	int d;  // direction
 	switch(c = getch()) {
 		case 'd':
-			EDIT_MOTION(e_delete, do_motion(b, getch()));
+			c = getch();
+			if(c == 'd')
+				delete_line(b, b->cur);
+			else { // heh. macros will break here if braces aren't in place... oops
+				EDIT_MOTION(e_delete, do_motion(b, c));
+			}
 			clrtoeol();
 			break;
 		case 'i':
