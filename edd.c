@@ -130,7 +130,7 @@ int m_prev_line(struct buf *b) {
 		b->cur = b->cur->p;
 		if(b->line == 0) {
 			b->scroll = b->scroll->p;
-			scrl(-1);
+			scrl(-1); // this is a junk call to make sure scrolling doesn't goof display
 		} else
 			b->line--;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
@@ -146,7 +146,7 @@ int m_next_line(struct buf *b) {
 		b->cur = b->cur->n;
 		if(b->line >= LINES - 1) {
 			b->scroll = b->scroll->n;
-			scrl(1);
+			scrl(1); // so is this one
 		} else
 			b->line++;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
@@ -159,14 +159,25 @@ int m_next_line(struct buf *b) {
 #define START (start.l->s + start.p)
 #define END	  (end.l->s + end.p)
 
-// TODO: support line deletes
+char *eos(char *c) {
+	while(c[0] != '\0') c++;
+	return c;
+}
+
 int e_delete(struct buf *b, pos start, pos end) {
-	memmove(START, END, strlen(END) + 1);
+	if(start.l == end.l)
+		memmove(START, END, strlen(END) + 1);
+	else {                                            // FIXME: TODO: err... general bugginess in this vicinity
+		char *es = eos(START);
+		memmove(START, es, es - START - 1); 	      // FUTURE BUGS MAY BE THE RESULT OF THIS LINE
+		for(line *l = start.l; l != end.l; l = l->n); // SCRATCH THAT. IT MAY BE THIS ENTIRE CHUNK
+		memmove(end.l, END, end.p);
+	}
 	return 0;
 }
 
-char *insert_str(struct buf *b) {
-	char *r = malloc(256); // FIXME: could overflow
+char *insert_str(struct buf *b) { // TODO: refactor
+	char *r = malloc(256); 		  // FIXME: could overflow
 	r[0] = '\0';
 	int i = 1;
 	char c;
