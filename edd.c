@@ -250,8 +250,7 @@ int swap(pos *s, pos *e) {
 								  edit(b, s, e);         \
 								  b->linepos = s.p;
 
-// motions get handled here:
-int do_motion (struct buf *b, char c) { // returns direction of motion
+int do_motion (struct buf *b, char c) { // motion get's handled here. it returns direction of motion
 	switch(c) {
 		case 'k':
 			return m_prev_line(b);
@@ -274,8 +273,7 @@ int do_motion (struct buf *b, char c) { // returns direction of motion
 	}
 }
 
-// other input gets handled here:
-void input(struct buf *b) {
+void input(struct buf *b) { // other input gets handled here
 	char c; // character input
 	pos s;  // start
 	pos e;  // end
@@ -331,7 +329,7 @@ void mv_message() { // move to the message box
 	move(LINES - 1, 0);
 }
 
-void display_message(char *s) {
+void display_message(char *s) { // display a message in the prompt box
 	mv_message();
 	clrtoeol();
 	addstr(s);
