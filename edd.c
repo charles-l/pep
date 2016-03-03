@@ -53,6 +53,10 @@ int e_insert(struct buf *b);
 void input(struct buf *b);
 line *load_file(struct buf *b, const char *fname);
 void display(struct buf *b);
+void run_command();
+
+// globals
+WINDOW *win;
 
 int eol_char(char c) {
 	return c == '\0' || c == '\n';
@@ -144,7 +148,7 @@ int m_next_line(struct buf *b) {
 	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
-		if(b->line >= LINES - 1) {
+		if(b->line >= LINES - 2) {
 			b->scroll = b->scroll->n;
 			scrl(1); // so is this one
 		} else
@@ -293,6 +297,9 @@ void input(struct buf *b) {
 			EDIT_MOTION(e_delete, m_next_char(b));
 			clrtoeol();
 			break;
+		case ':':
+			run_command();
+			break;
 		default:
 			if(do_motion(b, c))
 				break;
@@ -320,10 +327,37 @@ line *load_file(struct buf *b, const char *fname) {
 	}
 }
 
+void mv_message() { // move to the message box
+	move(LINES - 1, 0);
+}
+
+void display_message(char *s) {
+	mv_message();
+	clrtoeol();
+	addstr(s);
+	wredrawln(win, LINES - 1, 1);
+}
+
+#define COMMAND_LEN 256 // max command length
+
+void run_command() { // TODO: refactor
+	char com[COMMAND_LEN];
+
+	display_message(":"); // pop prompt
+
+	echo();
+	scrollok(win, 0);
+	getnstr(com, COMMAND_LEN);
+	scrollok(win, 1);
+	noecho();
+
+	display_message(com); // TODO: replace with command call
+}
+
 void display(struct buf *b) {
 	line *l = b->scroll;
 	for(int i = 0; l != NULL; l = l->n, i++) {
-		if(i > LINES - 1) break; // TODO: don't use LINES to allow for rescaling
+		if(i > LINES - 2) break; // TODO: don't use LINES to allow for rescaling
 		move(i, 0);
 		for(char *c = l->s; c[0] != '\0'; c++) {
 			switch(c[0]) {
@@ -344,7 +378,6 @@ void display(struct buf *b) {
 }
 
 int main(void) {
-	WINDOW *win;
 	if((win = initscr()) == NULL) {fprintf(stderr, "error initializing ncurses");}
 	noecho();
 	scrollok(win, 1);
