@@ -128,6 +128,13 @@ int m_bol(struct buf *b) {
 	return -1;
 }
 
+int m_jump(struct buf *b, pos start) { // ignores end
+	b->cur = start.l;
+	b->scroll = start.l;
+	b->line = 0;
+	clear();
+}
+
 int m_prev_line(struct buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
@@ -181,19 +188,6 @@ int delete_line(struct buf *b, line *l) {
 	clrtobot();
 }
 
-int e_delete(struct buf *b, pos start, pos end) {
-	if(start.l == end.l)
-		memmove(START, END, strlen(END) + 1);
-	else {
-		// for visual selection:
-		//int i = eos(start.l->s);
-		//e_delete(b, start, (pos) {start.l, i});
-		for(line *l = start.l; l != end.l->n; l = l->n) delete_line(b, l);
-		b->line--; // fix cursor
-	}
-	return 0;
-}
-
 char *insert_str(struct buf *b) { // TODO: refactor
 	char *r = malloc(256); 		  // FIXME: could overflow
 	r[0] = '\0';
@@ -214,6 +208,35 @@ char *insert_str(struct buf *b) { // TODO: refactor
 		}
 	}
 	return r;
+}
+
+int e_join(struct buf *b, pos start, pos end) {
+	size_t i = strlen(b->cur->s) + strlen(b->cur->n->s);
+	char e;
+	char *s = malloc(i + 1);
+	strcat(s, b->cur->s);
+
+	e = eos(s) - 1;	// remove newline
+	if(s[e] == '\n') s[e] = '\0';
+
+	strcat(s, b->cur->n->s);
+	delete_line(b, b->cur->n);
+	free(b->cur->s);
+	b->cur->s = s;
+	return 0;
+}
+
+int e_delete(struct buf *b, pos start, pos end) {
+	if(start.l == end.l)
+		memmove(START, END, strlen(END) + 1);
+	else {
+		// for visual selection:
+		//int i = eos(start.l->s);
+		//e_delete(b, start, (pos) {start.l, i});
+		for(line *l = start.l; l != end.l->n; l = l->n) delete_line(b, l);
+		b->line--; // fix cursor
+	}
+	return 0;
 }
 
 int e_insert(struct buf *b) { // TODO: refactor
@@ -250,7 +273,7 @@ int swap(pos *s, pos *e) {
 								  edit(b, s, e);         \
 								  b->linepos = s.p;
 
-int do_motion (struct buf *b, char c) { // motion get's handled here. it returns direction of motion
+int do_motion (struct buf *b, char c) { // motion is handled here. it returns direction of motion
 	switch(c) {
 		case 'k':
 			return m_prev_line(b);
@@ -268,6 +291,12 @@ int do_motion (struct buf *b, char c) { // motion get's handled here. it returns
 			return m_eol(b);
 		case '^':
 			return m_bol(b);
+		case 'G':
+			return m_jump(b, (pos) {b->last, 0});
+		case 'g':
+			c = getch();
+			if(c == 'g')
+				return m_jump(b, (pos) {b->first, 0});
 		default:
 			return 0;
 	}
@@ -293,6 +322,10 @@ void input(struct buf *b) { // other input gets handled here
 			break;
 		case 'x':
 			EDIT_MOTION(e_delete, m_next_char(b));
+			clrtoeol();
+			break;
+		case 'J':
+			e_join(b, (pos) {NULL, 0}, (pos) {NULL, 0});
 			clrtoeol();
 			break;
 		case ':':
