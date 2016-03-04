@@ -13,6 +13,7 @@
 #define TABSTOP 3     // width of tab
 
 ///////////
+
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
 #define KEY_ESC 27    // escape keycode
 
@@ -27,32 +28,39 @@ typedef struct {
 	int p;   		  // linepos
 } pos;
 
-struct buf {
+typedef struct undo { // saves an entire line in the undo list
+	line *pos;		  // pointer to position where undo should be inserted
+	line *changed;	  // stores changes
+	struct undo *n;	  // next undo (linked list)
+} undo;
+
+typedef struct {
 	line *first;
 	line *cur;
 	line *last;
 	line *scroll;     // top of current scroll position
 	int line;         // display line on screen
 	int linepos;      // position on line
-};
+} buf;
 
 int eol_char(char c);
-char get_c(struct buf *b);
-char get_nc(struct buf *b);
-char get_pc(struct buf *b);
-int m_next_word(struct buf *b);   		// motions just move the cursor
-int m_prev_word(struct buf *b);			// motions *must* return the driection they went
-int m_next_char(struct buf *b);
-int m_prev_char(struct buf *b);
-int m_next_line(struct buf *b);
-int m_prev_line(struct buf *b);
-int m_eol(struct buf *b);
-int m_bol(struct buf *b);
-int e_delete(struct buf *b, pos start, pos end); // track motions and operate on the in-between text
-int e_insert(struct buf *b);
-void input(struct buf *b);
-line *load_file(struct buf *b, const char *fname);
-void display(struct buf *b);
+char get_c(buf *b);
+char get_nc(buf *b);
+char get_pc(buf *b);
+int m_next_word(buf *b);   		// motions just move the cursor
+int m_prev_word(buf *b);			// motions *must* return the driection they went
+int m_next_char(buf *b);
+int m_prev_char(buf *b);
+int m_next_line(buf *b);
+int m_prev_line(buf *b);
+int m_eol(buf *b);
+int m_bol(buf *b);
+int e_delete(buf *b, pos start, pos end); // track motions and operate on the in-between text
+int e_insert(buf *b);
+void input(buf *b);
+line *load_file(buf *b, const char *fname);
+void display_message(char *s);
+void display(buf *b);
 void run_command();
 
 // globals
@@ -62,21 +70,21 @@ int eol_char(char c) {
 	return c == '\0' || c == '\n';
 }
 
-char get_c(struct buf *b) {
+char get_c(buf *b) {
 	return b->cur->s[b->linepos];
 }
 
-char get_nc(struct buf *b) {
+char get_nc(buf *b) {
 	if(get_c(b) == '\0') return '\0';
 	return b->cur->s[b->linepos];
 }
 
-char get_pc(struct buf *b) {
+char get_pc(buf *b) {
 	if(b->linepos == 0) return get_c(b);
 	return b->cur->s[b->linepos - 1];
 }
 
-int m_next_char(struct buf *b) {
+int m_next_char(buf *b) {
 	if(!eol_char(b->cur->s[b->linepos + 1])) {
 		b->linepos++;
 		return 1;
@@ -84,7 +92,7 @@ int m_next_char(struct buf *b) {
 	return 0;
 }
 
-int m_next_word(struct buf *b) {
+int m_next_word(buf *b) {
 	if(m_next_char(b))
 		if(!isalpha(get_c(b)) && !isspace(get_c(b)))
 			return 1;
@@ -97,7 +105,7 @@ int m_next_word(struct buf *b) {
 	return 1;
 }
 
-int m_prev_word(struct buf *b) {
+int m_prev_word(buf *b) {
 	if(m_prev_char(b))
 		if(!isalpha(get_c(b)) && !isspace(get_c(b)))
 			return -1;
@@ -110,7 +118,7 @@ int m_prev_word(struct buf *b) {
 	return -1;
 }
 
-int m_prev_char(struct buf *b) {
+int m_prev_char(buf *b) {
 	if(b->linepos > 0) {
 		b->linepos--;
 		return -1;
@@ -118,24 +126,24 @@ int m_prev_char(struct buf *b) {
 	return -1;
 }
 
-int m_eol(struct buf *b) {
+int m_eol(buf *b) {
 	for(b->linepos = 0; !eol_char(b->cur->s[b->linepos + 1]); b->linepos++);
 	return 1;
 }
 
-int m_bol(struct buf *b) {
+int m_bol(buf *b) {
 	b->linepos = 0;
 	return -1;
 }
 
-int m_jump(struct buf *b, pos start) { // ignores end
+int m_jump(buf *b, pos start) { // ignores end
 	b->cur = start.l;
 	b->scroll = start.l;
 	b->line = 0;
 	clear();
 }
 
-int m_prev_line(struct buf *b) {
+int m_prev_line(buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->p;
@@ -151,7 +159,7 @@ int m_prev_line(struct buf *b) {
 	return 0;
 }
 
-int m_next_line(struct buf *b) {
+int m_next_line(buf *b) {
 	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
@@ -167,16 +175,13 @@ int m_next_line(struct buf *b) {
 	return 0;
 }
 
-#define START (start.l->s + start.p)
-#define END	  (end.l->s + end.p)
-
 int eos(char *c) {
 	int i = 0;
 	while(c[0] != '\0') {c++; i++;}
 	return i;
 }
 
-int delete_line(struct buf *b, line *l) {
+int delete_line(buf *b, line *l) {
 	if(l->p) l->p->n = l->n ? l->n : NULL;
 	if(l->n) l->n->p = l->p ? l->p : NULL;
 
@@ -188,7 +193,7 @@ int delete_line(struct buf *b, line *l) {
 	clrtobot();
 }
 
-char *insert_str(struct buf *b) { // TODO: refactor
+char *insert_str(buf *b) { // TODO: refactor
 	char *r = malloc(256); 		  // FIXME: could overflow
 	r[0] = '\0';
 	int i = 1;
@@ -210,7 +215,7 @@ char *insert_str(struct buf *b) { // TODO: refactor
 	return r;
 }
 
-int e_join(struct buf *b, pos start, pos end) {
+int e_join(buf *b, pos start, pos end) {
 	size_t i = strlen(b->cur->s) + strlen(b->cur->n->s);
 	char e;
 	char *s = malloc(i + 1);
@@ -226,9 +231,16 @@ int e_join(struct buf *b, pos start, pos end) {
 	return 0;
 }
 
-int e_delete(struct buf *b, pos start, pos end) {
+#define STARTC (start.l->s + start.p)
+#define ENDC   (end.l->s + end.p)
+
+int e_delete(buf *b, pos start, pos end) {
 	if(start.l == end.l)
-		memmove(START, END, strlen(END) + 1);
+		if(eol_char(ENDC[1])) {
+			display_message("eol");
+			memmove(STARTC, ENDC, strlen(ENDC) + 1); // TODO: fixme
+		} else
+			memmove(STARTC, ENDC, strlen(ENDC) + 1);
 	else {
 		// for visual selection:
 		//int i = eos(start.l->s);
@@ -239,7 +251,7 @@ int e_delete(struct buf *b, pos start, pos end) {
 	return 0;
 }
 
-int e_insert(struct buf *b) { // TODO: refactor
+int e_insert(buf *b) { // TODO: refactor
 	char *i = insert_str(b);
 	size_t l = strlen(b->cur->s) + strlen(i);
 	char *n = malloc(l);
@@ -253,7 +265,7 @@ int e_insert(struct buf *b) { // TODO: refactor
 	return 0;
 }
 
-pos get_pos(struct buf *b) {
+pos get_pos(buf *b) {
 	pos p = {b->cur, b->linepos};
 	return p;
 }
@@ -273,7 +285,7 @@ int swap(pos *s, pos *e) {
 								  edit(b, s, e);         \
 								  b->linepos = s.p;
 
-int do_motion (struct buf *b, char c) { // motion is handled here. it returns direction of motion
+int do_motion (buf *b, char c) { // motion is handled here. it returns direction of motion
 	switch(c) {
 		case 'k':
 			return m_prev_line(b);
@@ -302,7 +314,7 @@ int do_motion (struct buf *b, char c) { // motion is handled here. it returns di
 	}
 }
 
-void input(struct buf *b) { // other input gets handled here
+void input(buf *b) { // other input gets handled here
 	char c; // character input
 	pos s;  // start
 	pos e;  // end
@@ -338,7 +350,7 @@ void input(struct buf *b) { // other input gets handled here
 }
 
 // TODO: chunk file? if memory is ever an issue, that'll be the easiest thing to do.
-line *load_file(struct buf *b, const char *fname) {
+line *load_file(buf *b, const char *fname) {
 	FILE *f = fopen(fname, "r");
 	if(f == NULL) ERROR("invalid file");
 	char s[MAXLINE];
@@ -385,7 +397,7 @@ void run_command() { // TODO: refactor
 	display_message(com); // TODO: replace with command call
 }
 
-void display(struct buf *b) {
+void display(buf *b) {
 	line *l = b->scroll;
 	for(int i = 0; l != NULL; l = l->n, i++) {
 		if(i > LINES - 2) break; // TODO: don't use LINES to allow for rescaling
@@ -413,7 +425,7 @@ int main(void) {
 	noecho();
 	scrollok(win, 1);
 
-	struct buf b = {NULL, NULL, NULL, 0, 0};
+	buf b = {NULL, NULL, NULL, 0, 0};
 	line *n = load_file(&b, "./pep.c");
 
 	b.cur = b.first;
