@@ -1,2 +1,2 @@
 all:
-	cc -g edd.c -o edd -lncurses
+	cc -g pep.c -o pep -lncurses

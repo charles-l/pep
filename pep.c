@@ -13,7 +13,7 @@
 #define TABSTOP 3     // width of tab
 
 ///////////
-#define ERROR(x) fprintf(stderr, "edd: %s", x);
+#define ERROR(x) fprintf(stderr, "pep: %s", x);
 #define KEY_ESC 27    // escape keycode
 
 typedef struct line { // double linked list
@@ -339,7 +339,7 @@ void input(struct buf *b) { // other input gets handled here
 
 // TODO: chunk file? if memory is ever an issue, that'll be the easiest thing to do.
 line *load_file(struct buf *b, const char *fname) {
-	FILE *f = fopen("./edd.c", "r");
+	FILE *f = fopen(fname, "r");
 	if(f == NULL) ERROR("invalid file");
 	char s[MAXLINE];
 	for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
@@ -414,7 +414,7 @@ int main(void) {
 	scrollok(win, 1);
 
 	struct buf b = {NULL, NULL, NULL, 0, 0};
-	line *n = load_file(&b, "./edd.c");
+	line *n = load_file(&b, "./pep.c");
 
 	b.cur = b.first;
 	b.scroll = b.first;
