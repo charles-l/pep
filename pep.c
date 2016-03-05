@@ -39,7 +39,6 @@ typedef struct {
 	line *cur;
 	line *last;
 	line *scroll;     // top of current scroll position
-	int line;         // display line on screen
 	int linepos;      // position on line
 } buf;
 
@@ -82,6 +81,12 @@ char get_nc(buf *b) {
 char get_pc(buf *b) {
 	if(b->linepos == 0) return get_c(b);
 	return b->cur->s[b->linepos - 1];
+}
+
+int disp_line(buf *b) { // calculate (number) the display line of the b->cur
+	int i = 0;
+	for(line *l = b->scroll; l != b->cur; l = l->n, i++);
+	return i;
 }
 
 int m_next_char(buf *b) {
@@ -139,7 +144,6 @@ int m_bol(buf *b) {
 int m_jump(buf *b, pos start) { // ignores end
 	b->cur = start.l;
 	b->scroll = start.l;
-	b->line = 0;
 	clear();
 }
 
@@ -147,11 +151,10 @@ int m_prev_line(buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->p;
-		if(b->line == 0) {
+		if(b->cur == b->scroll && b->scroll->p) {
 			b->scroll = b->scroll->p;
 			scrl(-1); // this is a junk call to make sure scrolling doesn't goof display
-		} else
-			b->line--;
+		}
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
 		return -1;
@@ -163,11 +166,10 @@ int m_next_line(buf *b) {
 	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
-		if(b->line >= LINES - 2) {
+		if(disp_line(b) >= LINES - 2) {
 			b->scroll = b->scroll->n;
 			scrl(1); // so is this one
-		} else
-			b->line++;
+		}
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
 		return 1;
@@ -203,11 +205,12 @@ char *insert_str(buf *b) { // TODO: refactor
 			default:
 				r[i - 1] = c;
 				r[i++] = '\0';
-				move(b->line, 0);
+				int l = disp_line(b);
+				move(l, 0);
 				addnstr(b->cur->s, b->linepos);
 				addstr(r);
 				addstr(b->cur->s + b->linepos);
-				move(b->line, b->linepos + i - 1);
+				move(l, b->linepos + i - 1);
 				refresh();
 				break;
 		}
@@ -246,7 +249,6 @@ int e_delete(buf *b, pos start, pos end) {
 		//int i = eos(start.l->s);
 		//e_delete(b, start, (pos) {start.l, i});
 		for(line *l = start.l; l != end.l->n; l = l->n) delete_line(b, l);
-		b->line--; // fix cursor
 	}
 	return 0;
 }
@@ -416,7 +418,7 @@ void display(buf *b) {
 			}
 		}
 	}
-	move(b->line, b->linepos);
+	move(disp_line(b), b->linepos);
 	refresh();
 }
 
