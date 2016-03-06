@@ -9,76 +9,76 @@
 #include <ctype.h>
 
 // configs
-#define MAXLINE 1024  			// maximum possible line length
-#define UNDOSIZE 256			// maximum number of undos
-#define TABSTOP 5     			// width of tab
+#define MAXLINE 1024  							// maximum possible line length
+#define UNDOSIZE 256							// maximum number of undos
+#define TABSTOP 5     							// width of tab
 
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
 #define KEY_ESC 27    							// escape keycode
 
 typedef struct line { 							// double linked list
 	char *s;
-	struct line *n;   							// next
-	struct line *p;   							// prev
+	struct line *n;   						// next
+	struct line *p;   						// prev
 } line;
 
 typedef struct {
-	line *l; 		  							// line
-	int p;   		  							// linepos
+	line *l; 		  					// line
+	int p;   		  					// linepos
 } pos;
 
 typedef struct undo { 							// saves an entire line in the undo list
-	pos p;			  							// pointer to position where undo should be inserted
-	line l;										// stores changes
-	struct undo *n;	  							// next undo (linked list)
+	pos p;			  					// pointer to position where undo should be inserted
+	line l;								// stores changes
+	struct undo *n;	  						// next undo (linked list)
 } undo;
 
 typedef struct {
-	line *first;	  							// first line in file
-	line *cur;		  							// current line
-	line *last;       							// last line in file
-	line *scroll;     							// top of current scroll position
-	int linepos;      							// position on line (actual byte position)
-	int calcvlnpos;     							// visual line position (to take into account tabs, (future) utf8(?), etc)
-	undo *undos;  								// linked list of undos
-	undo *redos;  								// linked list of redos
+	line *first;	  						// first line in file
+	line *cur;		  					// current line
+	line *last;       						// last line in file
+	line *scroll;     						// top of current scroll position
+	int linepos;      						// position on line (actual byte position)
+	int calcvlnpos;     						// visual line position (to take into account tabs, (future) utf8(?), etc)
+	undo *undos;  							// linked list of undos
+	undo *redos;  							// linked list of redos
 } buf;
 
 void pushundo(buf *b, pos *start, pos *end);	// creates an undo and shoves it into the current buffer undo list
-void mvmsg(); 									// move cursor to prompt
-char get_c(buf *b);								// get the current character
+void mvmsg(); 								// move cursor to prompt
+char get_c(buf *b);							// get the current character
 char get_nc(buf *b);							// get the next character
 char get_pc(buf *b);							// get the previous character
 int is_eolch(char c);							// check if a character is an eol char
-int eos(char *c);								// find end of string
-int calcln(buf *b);								// calculate distance between b->scroll and b->cur
+int eos(char *c);							// find end of string
+int calcln(buf *b);							// calculate distance between b->scroll and b->cur
 int calcvlnpos(buf *b);							// calculate visual position of cursor
 int delln(buf *b, line *l);						// used internall with delete edit function
 int swap(pos *s, pos *e);						// swap two pos
 pos curpos(buf *b); 							// create a pos for current position
-line *rngcpy(pos *start, pos *end);				// copy around a range of lines
+line *rngcpy(pos *start, pos *end);					// copy around a range of lines
 
 // motions (must return 1 for forward, -1 for backwards)
 int m_nextwrd(buf *b);   						// move to next word
 int m_prevwrd(buf *b);
-int m_nextch(buf *b);						// next character
+int m_nextch(buf *b);							// next character
 int m_prevch(buf *b);
-int m_nextln(buf *b);						// next line
+int m_nextln(buf *b);							// next line
 int m_prevln(buf *b);
-int m_eol(buf *b);								// end of line
-int m_bol(buf *b);								// beginning of line
-int m_jump(buf *b, pos start);					// jump to position in file
+int m_eol(buf *b);							// end of line
+int m_bol(buf *b);							// beginning of line
+int m_jump(buf *b, pos start);						// jump to position in file
 
 // edits (tracks difference between two motions and operates on inbetween)
-int e_del(buf *b, pos start, pos end);		// delete
+int e_del(buf *b, pos start, pos end);					// delete
 int e_insert(buf *b);							// insert on line
-int e_join(buf *b, pos start, pos end);			// join current and next line
-int e_undo(buf *b, pos start, pos end);			// undo
+int e_join(buf *b, pos start, pos end);					// join current and next line
+int e_undo(buf *b, pos start, pos end);					// undo
 
 line *load_file(buf *b, const char *fname);
 void showmsg(char *s);							// show a message in the status bar
-void promptcmd();								// run a command from the prompt
-void input(buf *b);								// main input handler
+void promptcmd();							// run a command from the prompt
+void input(buf *b);							// main input handler
 void display(buf *b);							// main draw function
 
 // globals
