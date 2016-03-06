@@ -29,7 +29,7 @@ typedef struct {
 
 typedef struct undo { 							// saves an entire line in the undo list
 	pos p;			  					// pointer to position where undo should be inserted
-	line l;								// stores changes
+	line *l;								// stores changes
 	struct undo *n;	  						// next undo (linked list)
 } undo;
 
@@ -44,7 +44,7 @@ typedef struct {
 	undo *redos;  							// linked list of redos
 } buf;
 
-void pushundo(buf *b, pos *start, pos *end);	// creates an undo and shoves it into the current buffer undo list
+void pushundo(buf *b, pos *start, pos *end);				// creates an undo and shoves it into the current buffer undo list
 void mvmsg(); 								// move cursor to prompt
 char get_c(buf *b);							// get the current character
 char get_nc(buf *b);							// get the next character
@@ -76,10 +76,12 @@ int e_join(buf *b, pos start, pos end);					// join current and next line
 int e_undo(buf *b, pos start, pos end);					// undo
 
 line *load_file(buf *b, const char *fname);
+void freebuf(buf *b);
 void showmsg(char *s);							// show a message in the status bar
-void promptcmd();							// run a command from the prompt
+void promptcmd(buf *b);						// run a command from the prompt
 void input(buf *b);							// main input handler
 void display(buf *b);							// main draw function
+void quit(buf *b);
 
 // globals
 WINDOW *win;
@@ -123,19 +125,33 @@ int calcvlnpos(buf *b) {
 }
 
 line *rngcpy(pos *start, pos *end) {
-	line *r;
+	line *r = malloc(sizeof(line));
+	r->n = NULL;
+	r->p = NULL;
 	if(start->l == end->l) {
-		r = malloc(end->p - start->p);
-		memcpy(r, start->l + start->p, end->p - start->p);
+		r->s = malloc(end->p - start->p);
+		memcpy(r->s, start->l + start->p, end->p - start->p);
+	} // TODO: handle multiline ranges
+	return r;
+}
+
+line *lncpy(pos *start, pos *end) {
+	line *r = malloc(sizeof(line));
+	r->n = NULL;
+	r->p = NULL;
+	if(start->l == end->l) {
+		r->s = malloc(strlen(start->l->s));
+		strcpy(r->s, start->l->s);
 	}
+	return r;
 }
 
 void pushundo(buf *b, pos *start, pos *end) {
 	undo *u = malloc(sizeof(undo));
 	u->p = curpos(b);
-	if(start->l == end->l)
-
 	u->n = b->undos;
+	if(start->l == end->l)
+		u->l = lncpy(start, end);
 	b->undos = u;
 }
 
@@ -291,7 +307,6 @@ int e_del(buf *b, pos start, pos end) {
 	pushundo(b, &start, &end);
 	if(start.l == end.l)
 		if(is_eolch(ENDC[1])) {
-			showmsg("eol");
 			memmove(STARTC, ENDC, strlen(ENDC) + 1); // TODO: fixme
 		} else
 			memmove(STARTC, ENDC, strlen(ENDC) + 1);
@@ -319,8 +334,16 @@ int e_insert(buf *b) { // TODO: refactor
 }
 
 int e_undo(buf *b, pos start, pos end) {
-	if(b->undos != NULL)
-		*(b->undos->p.l) = b->undos->l; // TODO: maybe memcpy?
+	if(b->undos != NULL) {
+		b->undos->l->n = b->undos->p.l->n;
+		b->undos->l->p = b->undos->p.l->p;
+
+		*(b->undos->p.l) = *(b->undos->l); // TODO: maybe memcpy?
+
+		undo *u = b->undos;
+		b->undos = b->undos->n;
+		free(u);
+	}
 }
 
 pos curpos(buf *b) {
@@ -402,7 +425,7 @@ void input(buf *b) { // other input gets handled here
 			e_undo(b, (pos) {NULL, 0}, (pos) {NULL, 0});
 			break;
 		case ':':
-			promptcmd();
+			promptcmd(b);
 			break;
 		default:
 			if(do_motion(b, c))
@@ -431,6 +454,14 @@ line *load_file(buf *b, const char *fname) {
 	}
 }
 
+void freebuf(buf *b) {
+	while(b->first != NULL) {
+		free(b->first->s);
+		free(b->first);
+		b->first = b->first->n;
+	}
+}
+
 void mvmsg() { // move to the message box
 	move(LINES - 1, 0);
 }
@@ -444,7 +475,7 @@ void showmsg(char *s) { // display a message in the prompt box
 
 #define COMMAND_LEN 256 // max command length
 
-void promptcmd() { // TODO: refactor
+void promptcmd(buf *b) { // TODO: refactor
 	char com[COMMAND_LEN];
 
 	showmsg(":"); // pop prompt
@@ -454,6 +485,10 @@ void promptcmd() { // TODO: refactor
 	getnstr(com, COMMAND_LEN);
 	scrollok(win, 1);
 	noecho();
+
+	if(com[0] == 'q') {
+		quit(b);
+	}
 
 	showmsg(com); // TODO: replace with command call
 }
@@ -480,6 +515,14 @@ void display(buf *b) {
 	refresh();
 }
 
+void quit(buf *b) {
+	freebuf(b);
+	endwin();
+	delwin(win);
+	refresh();
+	exit(0);
+}
+
 int main(void) {
 	if((win = initscr()) == NULL) {fprintf(stderr, "error initializing ncurses");}
 	noecho();
@@ -500,8 +543,6 @@ int main(void) {
 		input(&b);
 	}
 
-	endwin();
-	delwin(win);
-	refresh();
+	quit(&b); // shouldn't ever get reached
 	return 0;
 }
