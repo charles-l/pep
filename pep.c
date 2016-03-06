@@ -10,7 +10,7 @@
 
 // configs
 #define MAXLINE 1024  // maximum possible line length
-#define TABSTOP 3     // width of tab
+#define TABSTOP 5     // width of tab
 
 ///////////
 
@@ -39,7 +39,8 @@ typedef struct {
 	line *cur;
 	line *last;
 	line *scroll;     // top of current scroll position
-	int linepos;      // position on line
+	int linepos;      // position on line (actual byte position)
+	int vlinepos;     // visual lineposition (to take into account tabs, (future) utf8, etc)
 } buf;
 
 int eol_char(char c);
@@ -86,6 +87,20 @@ char get_pc(buf *b) {
 int disp_line(buf *b) { // calculate (number) the display line of the b->cur
 	int i = 0;
 	for(line *l = b->scroll; l != b->cur; l = l->n, i++);
+	return i;
+}
+
+int vlinepos(buf *b) { // calculate the current visual x position of the cursor
+	int i = 0;
+	for(int j = 0; j < b->linepos; j++)
+		switch(b->cur->s[j]) {
+			case '\t':
+				i += TABSTOP;
+				break;
+			default:
+				i++;
+				break;
+		}
 	return i;
 }
 
@@ -401,13 +416,15 @@ void run_command() { // TODO: refactor
 
 void display(buf *b) {
 	line *l = b->scroll;
+	b->vlinepos = vlinepos(b);
 	for(int i = 0; l != NULL; l = l->n, i++) {
 		if(i > LINES - 2) break; // TODO: don't use LINES to allow for rescaling
 		move(i, 0);
 		for(char *c = l->s; c[0] != '\0'; c++) {
 			switch(c[0]) {
 				case '\t':
-					addstr(" "); // TODO: fixme
+					for(int i = 0; i < TABSTOP; i++)
+						addch(' ');
 					break;
 				case '\n':
 					addstr("$");
@@ -418,7 +435,7 @@ void display(buf *b) {
 			}
 		}
 	}
-	move(disp_line(b), b->linepos);
+	move(disp_line(b), b->vlinepos);
 	refresh();
 }
 
@@ -431,6 +448,8 @@ int main(void) {
 	line *n = load_file(&b, "./pep.c");
 
 	b.cur = b.first;
+	b.linepos = 0;
+	b.vlinepos = 0;
 	b.scroll = b.first;
 
 	while(1) {
