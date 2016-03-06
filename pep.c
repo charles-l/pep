@@ -9,59 +9,75 @@
 #include <ctype.h>
 
 // configs
-#define MAXLINE 1024  // maximum possible line length
-#define TABSTOP 5     // width of tab
+#define MAXLINE 1024  			// maximum possible line length
+#define TABSTOP 5     			// width of tab
 
 ///////////
 
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
-#define KEY_ESC 27    // escape keycode
+#define KEY_ESC 27    							// escape keycode
 
-typedef struct line { // double linked list
+typedef struct line { 							// double linked list
 	char *s;
-	struct line *n;   // next
-	struct line *p;   // prev
+	struct line *n;   							// next
+	struct line *p;   							// prev
 } line;
 
 typedef struct {
-	line *l; 		  // line
-	int p;   		  // linepos
+	line *l; 		  							// line
+	int p;   		  							// linepos
 } pos;
 
-typedef struct undo { // saves an entire line in the undo list
-	line *pos;		  // pointer to position where undo should be inserted
-	line *changed;	  // stores changes
-	struct undo *n;	  // next undo (linked list)
+typedef struct undo { 							// saves an entire line in the undo list
+	line *pos;		  							// pointer to position where undo should be inserted
+	line *changed;	  							// stores changes
+	struct undo *n;	  							// next undo (linked list)
 } undo;
 
 typedef struct {
-	line *first;
-	line *cur;
-	line *last;
-	line *scroll;     // top of current scroll position
-	int linepos;      // position on line (actual byte position)
-	int vlinepos;     // visual lineposition (to take into account tabs, (future) utf8, etc)
+	line *first;	  							// first line in file
+	line *cur;		  							// current line
+	line *last;       							// last line in file
+	line *scroll;     							// top of current scroll position
+	int linepos;      							// position on line (actual byte position)
+	int vlinepos;     							// visual line position (to take into account tabs, (future) utf8(?), etc)
+	undo *undos;	  							// linked list of undos
+	undo *redos;	  							// linked list of redos
 } buf;
 
-int eol_char(char c);
-char get_c(buf *b);
-char get_nc(buf *b);
-char get_pc(buf *b);
-int m_next_word(buf *b);   		// motions just move the cursor
-int m_prev_word(buf *b);			// motions *must* return the driection they went
-int m_next_char(buf *b);
+char get_c(buf *b);								// get the current character
+char get_nc(buf *b);							// get the next character
+char get_pc(buf *b);							// get the previous character
+int eol_char(char c);							// check if a character is an eol char
+int eos(char *c);								// find end of string
+int disp_line(buf *b);							// calculate distance between b->scroll and b->cur
+int vlinepos(buf *b);							// calculate visual position of cursor
+int delete_line(buf *b, line *l);				// used internall with delete edit function
+int swap(pos *s, pos *e);						// swap two pos
+pos get_pos(buf *b); 							// create a pos for current position
+void mv_message(); 								// move cursor to prompt
+
+// motions (must return 1 for forward, -1 for backwards)
+int m_next_word(buf *b);   						// move to next word
+int m_prev_word(buf *b);
+int m_next_char(buf *b);						// next character
 int m_prev_char(buf *b);
-int m_next_line(buf *b);
+int m_next_line(buf *b);						// next line
 int m_prev_line(buf *b);
-int m_eol(buf *b);
-int m_bol(buf *b);
-int e_delete(buf *b, pos start, pos end); // track motions and operate on the in-between text
-int e_insert(buf *b);
-void input(buf *b);
+int m_eol(buf *b);								// end of line
+int m_bol(buf *b);								// beginning of line
+int m_jump(buf *b, pos start);					// jump to position in file
+
+// edits (tracks difference between two motions and operates on inbetween)
+int e_delete(buf *b, pos start, pos end);		// delete
+int e_insert(buf *b);							// insert on line
+int e_join(buf *b, pos start, pos end);			// join current and next line
+
+void input(buf *b);								// input handler
 line *load_file(buf *b, const char *fname);
-void display_message(char *s);
-void display(buf *b);
-void run_command();
+void display_message(char *s);					// show a message in the status bar
+void display(buf *b);							// main draw function
+void run_command();								// run a command from the prompt
 
 // globals
 WINDOW *win;
@@ -143,7 +159,7 @@ int m_prev_char(buf *b) {
 		b->linepos--;
 		return -1;
 	}
-	return -1;
+	return 0;
 }
 
 int m_eol(buf *b) {
