@@ -5,7 +5,7 @@ A minimal orthogonal Vim-like clone.
 * Basic editing tasks
 * ~300 SLOC (goal is to stay under 8K - less if possible)
 
-## Architecture
+## Design
 * Motions
     * Motions just move the cursor from one place to another. They're prefixed with an `m_`
     * Motions are easy to add. They just require the current buffer.
