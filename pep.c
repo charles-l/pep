@@ -36,6 +36,12 @@ typedef struct undo { 			// saves an entire line in the undo list
 	struct undo *n;	  		// next undo (linked list)
 } undo;
 
+typedef struct string {			// auto growing string (only use when necessary)
+	char *ss;			// content
+	size_t s;			// size
+	size_t l;			// length
+} string;				// TODO: perhaps throw into its own file?
+
 typedef struct {
 	line *first;	  		// first line in file
 	line *cur;		  	// current line
@@ -57,11 +63,14 @@ char prevch(buf *b);			// previous character
 int eos(char *c);			// distance to end of string
 int getcurln(buf *b);			// get visual y position of cursor
 int getvlnpos(buf *b);			// get visual x cursor position
-
 int swap(pos *s, pos *e);
 line *rngcpy(pos *start, pos *end);
 line *lncpy(pos *start, pos *end);
 void pushundo(buf *b, pos *start, pos *end);
+string *newstr(char *content, size_t n);
+void appendstr(string *s, char *c);
+void appendch(string *s, char c);
+void freestr(string *s);
 
 int m_nextch(buf *b);
 int m_nextwrd(buf *b);
@@ -203,6 +212,47 @@ void pushundo(buf *b, pos *start, pos *end) {
 	b->undos = u;
 }
 
+//// AUTO GROWING STRINGS ////
+
+string *newstr(char *content, size_t n) {
+	string *s = malloc(sizeof(string));
+	s->l = strlen(content);
+	s->s = n;
+	s->ss = malloc(s->s);
+	strcpy(s->ss, content);
+	return s;
+}
+
+void appendstr(string *s, char *c) {
+	size_t l = strlen(c);
+	if(s->l + l + 1 > s->s) {
+		s->s *= 2;
+		s->ss = realloc(s->ss, s->s);
+	}
+	s->l += l;
+	strcat(s->ss, c);
+}
+
+void appendch(string *s, char c) {
+	if(s->l + 1 > s->s) {
+		s->s *= 2;
+		s->ss = realloc(s->ss, s->s);
+	}
+	s->ss[s->l++] = c;
+	s->ss[s->l] = '\0';
+}
+
+void remch(string *s) { // backspace
+	if(s->l > 0)
+		s->ss[--s->l] = '\0';
+}
+
+void freestr(string *s) {
+	free(s->ss);
+	free(s);
+	s = NULL;
+}
+
 //// MOTIONS ////
 
 int m_nextch(buf *b) {
@@ -317,10 +367,7 @@ int e_join(buf *b, pos start, pos end) {
 int e_del(buf *b, pos start, pos end) {
 	pushundo(b, &start, &end);
 	if(start.l == end.l)
-		if(is_eolch(ENDC[1])) {
-			memmove(STARTC, ENDC, strlen(ENDC) + 1); // FIXME
-		} else
-			memmove(STARTC, ENDC, strlen(ENDC) + 1);
+		memmove(STARTC, ENDC, strlen(ENDC) + 1); // FIXME?
 	else {
 		// for visual selection:
 		//int i = eos(start.l->s);
@@ -328,6 +375,15 @@ int e_del(buf *b, pos start, pos end) {
 		for(line *l = start.l; l != end.l->n; l = l->n) delln(b, l);
 	}
 	return 0;
+}
+
+char *insrtstr(char *s, char *i, int p) {
+	char *r = malloc(strlen(s) + strlen(i));
+	strncpy(r, s, p);
+	r[p] = '\0';
+	strcat(r, i);
+	strcat(r, s + p);
+	return r;
 }
 
 int e_insert(buf *b) { // TODO: refactor
@@ -469,15 +525,15 @@ void promptcmd(buf *b) { // TODO: refactor
 //// INPUT HANDLERS / DRAWS ////
 
 #define EDIT_MOTION(edit, motion) 			\
-				s = curpos(b);		\
-				d = motion; 		\
-				e = curpos(b);		\
-				if(d<0) swap(&s, &e);	\
-				edit(b, s, e);		\
-				b->linepos = s.p;
+	s = curpos(b);		\
+d = motion; 		\
+e = curpos(b);		\
+if(d<0) swap(&s, &e);	\
+edit(b, s, e);		\
+b->linepos = s.p;
 
-int do_motion (buf *b, char c) {// motion is handled here.
-				// it returns direction of motion
+int do_motion(buf *b, char c) {// motion is handled here.
+	// it returns direction of motion
 	switch(c) {
 		case 'k':
 			return m_prevln(b);
@@ -568,30 +624,28 @@ void command_mode(buf *b) {
 }
 
 char *insert_mode(buf *b) { // TODO: refactor
-	char *r = malloc(256); 		  // FIXME: could overflow
-	r[0] = '\0';
-	int i = 1;
+	line *l = b->cur;
+	string *r = newstr("", 128); // auto grow string
 	char c;
 	while((c = getch()) != KEY_ESC) {
 		int l = getcurln(b);
 		switch(c) {
 			case KEY_BS:
-				r[i--] = '\0';
-				move(l, b->linepos + i - 1);
+				remch(r);
 				break;
 			default:
-				r[i - 1] = c;
-				r[i++] = '\0';
-				move(l, 0);
-				addnstr(b->cur->s, b->linepos);
-				addstr(r);
-				addstr(b->cur->s + b->linepos);
-				move(l, b->linepos + i - 1);
-				refresh();
+				appendch(r, c);
 				break;
 		}
+		move(l, 0);
+		clrtoeol();
+		addnstr(b->cur->s, b->linepos);
+		addstr(r->ss);
+		addstr(b->cur->s + b->linepos);
+		move(l, b->linepos + r->l);
+		refresh();
 	}
-	return r;
+	return r->ss;
 }
 
 void quit(buf *b) {
