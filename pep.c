@@ -14,7 +14,8 @@
 #define STATUS_LENGTH 256						// max length of status text
 
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
-#define KEY_ESC 27    							// escape keycode
+#define KEY_ESC 0x1B    						// escape keycode
+#define KEY_BS 0x7F    							// backspace keycode
 
 typedef struct line { 							// double linked list
 	char *s;
@@ -60,6 +61,7 @@ int swap(pos *s, pos *e);						// swap two pos
 pos curpos(buf *b); 							// create a pos for current position
 line *rngcpy(pos *start, pos *end);					// copy around a range of lines
 void filestatus(buf *b);
+char *insert_mode(buf *b);						// insert mode
 
 // motions (must return 1 for forward, -1 for backwards)
 int m_nextwrd(buf *b);   						// move to next word
@@ -267,17 +269,21 @@ int delln(buf *b, line *l) {
 	clrtobot();
 }
 
-char *insert_str(buf *b) { // TODO: refactor
+char *insert_mode(buf *b) { // TODO: refactor
 	char *r = malloc(256); 		  // FIXME: could overflow
 	r[0] = '\0';
 	int i = 1;
 	char c;
 	while((c = getch()) != KEY_ESC) {
+		int l = calcln(b);
 		switch(c) {
+			case KEY_BS:
+				r[i--] = '\0';
+				move(l, b->linepos + i - 1);
+				break;
 			default:
 				r[i - 1] = c;
 				r[i++] = '\0';
-				int l = calcln(b);
 				move(l, 0);
 				addnstr(b->cur->s, b->linepos);
 				addstr(r);
@@ -326,7 +332,7 @@ int e_del(buf *b, pos start, pos end) {
 }
 
 int e_insert(buf *b) { // TODO: refactor
-	char *i = insert_str(b);
+	char *i = insert_mode(b);
 	size_t l = strlen(b->cur->s) + strlen(i);
 	char *n = malloc(l);
 	strncpy(n, b->cur->s, b->linepos);
