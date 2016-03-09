@@ -12,6 +12,7 @@
 #define MAXLINE 1024  							// maximum possible line length
 #define TABSTOP 5     							// width of tab
 #define STATUS_LENGTH 256						// max length of status text
+#define COMMAND_LEN 256 						// max command length
 
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
 #define KEY_ESC 0x1B    						// escape keycode
@@ -61,7 +62,8 @@ int swap(pos *s, pos *e);						// swap two pos
 pos curpos(buf *b); 							// create a pos for current position
 line *rngcpy(pos *start, pos *end);					// copy around a range of lines
 void filestatus(buf *b);
-char *insert_mode(buf *b);						// insert mode
+char *insert_mode(buf *b);
+void command_mode(buf *b);
 
 // motions (must return 1 for forward, -1 for backwards)
 int m_nextwrd(buf *b);   						// move to next word
@@ -85,8 +87,7 @@ line *load_file(buf *b, const char *fname);
 void freebuf(buf *b);
 void showmsg(char *s);							// show a message in the status bar
 void promptcmd(buf *b);						// run a command from the prompt
-void input(buf *b);							// main input handler
-void display(buf *b);							// main draw function
+void drawbuf(buf *b);							// main draw function
 void quit(buf *b);
 
 // globals
@@ -94,6 +95,12 @@ WINDOW *win;
 
 int is_eolch(char c) {
 	return c == '\0' || c == '\n';
+}
+
+line *dupln(line *l) {
+	line *r = malloc(sizeof(line));
+	*r = *l;
+	return r;
 }
 
 char get_c(buf *b) {
@@ -269,33 +276,6 @@ int delln(buf *b, line *l) {
 	clrtobot();
 }
 
-char *insert_mode(buf *b) { // TODO: refactor
-	char *r = malloc(256); 		  // FIXME: could overflow
-	r[0] = '\0';
-	int i = 1;
-	char c;
-	while((c = getch()) != KEY_ESC) {
-		int l = calcln(b);
-		switch(c) {
-			case KEY_BS:
-				r[i--] = '\0';
-				move(l, b->linepos + i - 1);
-				break;
-			default:
-				r[i - 1] = c;
-				r[i++] = '\0';
-				move(l, 0);
-				addnstr(b->cur->s, b->linepos);
-				addstr(r);
-				addstr(b->cur->s + b->linepos);
-				move(l, b->linepos + i - 1);
-				refresh();
-				break;
-		}
-	}
-	return r;
-}
-
 int e_join(buf *b, pos start, pos end) {
 	size_t i = strlen(b->cur->s) + strlen(b->cur->n->s);
 	char e;
@@ -412,7 +392,8 @@ int do_motion (buf *b, char c) { // motion is handled here. it returns direction
 			return m_eol(b);
 		case '^':
 			return m_bol(b);
-		case 'G':
+		case 'G': // FIXME
+			m_bol(b);
 			return m_jump(b, (pos) {b->last, 0});
 		case 'g':
 			c = getch();
@@ -420,61 +401,6 @@ int do_motion (buf *b, char c) { // motion is handled here. it returns direction
 				return m_jump(b, (pos) {b->first, 0});
 		default:
 			return 0;
-	}
-}
-
-void input(buf *b) { // other input gets handled here
-	char c; // character input
-	pos s;  // start
-	pos e;  // end
-	int d;  // direction
-	switch(c = getch()) {
-		case 'd':
-			c = getch();
-			if(c == 'd') // TODO: move somewhere saner
-				// TODO: add undo
-				delln(b, b->cur);
-			else { // heh. macros will break here if braces aren't in place... oops
-				EDIT_MOTION(e_del, do_motion(b, c));
-			}
-			clrtoeol();
-			break;
-		case 'i':
-			e_insert(b);
-			break;
-		case 'x':
-			EDIT_MOTION(e_del, m_nextch(b));
-			clrtoeol();
-			break;
-		case 'J':
-			e_join(b, (pos) {NULL, 0}, (pos) {NULL, 0});
-			clrtoeol();
-			break;
-		case 'u':
-			e_undo(b, (pos) {NULL, 0}, (pos) {NULL, 0});
-			break;
-		case ' ':
-			filestatus(b);
-			break;
-		case 'o':
-			e_new_line(b);
-			m_bol(b);
-			display(b); // force redraw
-			e_insert(b);
-			break;
-		case 'O':
-			m_prevln(b);
-			m_bol(b);
-			e_new_line(b);
-			display(b);
-			e_insert(b);
-			break;
-		case ':':
-			promptcmd(b);
-			break;
-		default:
-			if(do_motion(b, c))
-				break;
 	}
 }
 
@@ -507,6 +433,91 @@ line *load_file(buf *b, const char *fname) {
 	b->filename = (char *) fname;
 }
 
+void command_mode(buf *b) {
+	char c; // character from getch
+	pos s;  // start of motion
+	pos e;  // end of motion
+	int d;  // direction
+	while(1) {
+		drawbuf(b);
+		switch(c = getch()) {
+			case 'd':
+				c = getch();
+				if(c == 'd') // TODO: move somewhere saner
+					// TODO: add undo
+					delln(b, b->cur);
+				else { // heh. macros will break here if braces aren't in place... oops
+					EDIT_MOTION(e_del, do_motion(b, c));
+				}
+				clrtoeol();
+				break;
+			case 'i':
+				e_insert(b);
+				break;
+			case 'x':
+				EDIT_MOTION(e_del, m_nextch(b));
+				clrtoeol();
+				break;
+			case 'J':
+				e_join(b, (pos) {NULL, 0}, (pos) {NULL, 0});
+				clrtoeol();
+				break;
+			case 'u':
+				e_undo(b, (pos) {NULL, 0}, (pos) {NULL, 0});
+				break;
+			case ' ':
+				filestatus(b);
+				break;
+			case 'o':
+				e_new_line(b);
+				m_bol(b);
+				drawbuf(b); // force redraw
+				e_insert(b);
+				break;
+			case 'O':
+				m_prevln(b);
+				m_bol(b);
+				e_new_line(b);
+				drawbuf(b);
+				e_insert(b);
+				break;
+			case ':':
+				promptcmd(b);
+				break;
+			default:
+				if(do_motion(b, c))
+					break;
+		}
+	}
+}
+
+char *insert_mode(buf *b) { // TODO: refactor
+	char *r = malloc(256); 		  // FIXME: could overflow
+	r[0] = '\0';
+	int i = 1;
+	char c;
+	while((c = getch()) != KEY_ESC) {
+		int l = calcln(b);
+		switch(c) {
+			case KEY_BS:
+				r[i--] = '\0';
+				move(l, b->linepos + i - 1);
+				break;
+			default:
+				r[i - 1] = c;
+				r[i++] = '\0';
+				move(l, 0);
+				addnstr(b->cur->s, b->linepos);
+				addstr(r);
+				addstr(b->cur->s + b->linepos);
+				move(l, b->linepos + i - 1);
+				refresh();
+				break;
+		}
+	}
+	return r;
+}
+
 void freebuf(buf *b) {
 	while(b->first != NULL) {
 		free(b->first->s);
@@ -526,8 +537,6 @@ void showmsg(char *s) { // display a message in the prompt box
 	wredrawln(win, LINES - 1, 1);
 }
 
-#define COMMAND_LEN 256 // max command length
-
 void promptcmd(buf *b) { // TODO: refactor
 	char com[COMMAND_LEN];
 
@@ -546,7 +555,7 @@ void promptcmd(buf *b) { // TODO: refactor
 	showmsg(com); // TODO: replace with command call
 }
 
-void display(buf *b) {
+void drawbuf(buf *b) {
 	line *l = b->scroll;
 	b->calcvlnpos = calcvlnpos(b);
 	for(int i = 0; l != NULL; l = l->n, i++) {
@@ -591,10 +600,7 @@ int main(void) {
 	b.undos = NULL;
 	b.redos = NULL;
 
-	while(1) {
-		display(&b);
-		input(&b);
-	}
+	command_mode(&b);
 
 	quit(&b); // shouldn't ever get reached
 	return 0;
