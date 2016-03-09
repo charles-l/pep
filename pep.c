@@ -9,54 +9,54 @@
 #include <ctype.h>
 
 // configs
-#define MAXLINE 1024  							// maximum possible line length
-#define TABSTOP 8     							// width of tab
-#define STATUS_LENGTH 256						// max length of status text
-#define COMMAND_LEN 256 						// max command length
+#define MAXLINE 1024  			// maximum possible line length
+#define TABSTOP 8     			// width of tab
+#define STATUS_LENGTH 256		// max length of status text
+#define COMMAND_LEN 256 		// max command length
 
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
-#define KEY_ESC 0x1B    						// escape keycode
-#define KEY_BS 0x7F    							// backspace keycode
+#define KEY_ESC 0x1B    		// escape keycode
+#define KEY_BS 0x7F    			// backspace keycode
 
-typedef struct line { 							// double linked list
+typedef struct line { 			// double linked list
 	char *s;
-	struct line *n;   						// next
-	struct line *p;   						// prev
+	struct line *n;   		// next
+	struct line *p;   		// prev
 } line;
 
 typedef struct {
-	line *l; 		  					// line
-	int p;   		  					// linepos
+	line *l; 		  	// line
+	int p;   		  	// linepos
 } pos;
 
-typedef struct undo { 							// saves an entire line in the undo list
-	pos p;			  					// pointer to position where undo should be inserted
-	line *l;							// stores changes
-	enum {DELETED, CHANGED} t;					// whether line was deleted or changed
-	struct undo *n;	  						// next undo (linked list)
+typedef struct undo { 			// saves an entire line in the undo list
+	pos p;			  	// undo position
+	line *l;			// stores changes
+	enum {DELETED, CHANGED} t;	// whether line was deleted or changed
+	struct undo *n;	  		// next undo (linked list)
 } undo;
 
 typedef struct {
-	line *first;	  						// first line in file
-	line *cur;		  					// current line
-	line *last;       						// last line in file
-	line *scroll;     						// top of current scroll position
-	int linepos;      						// position on line (actual byte position)
-	int getvlnpos;     						// visual line position (to take into account tabs, (future) utf8(?), etc)
-	undo *undos;  							// linked list of undos
-	undo *redos;  							// linked list of redos
-	char *filename;							// buffers filename
+	line *first;	  		// first line in file
+	line *cur;		  	// current line
+	line *last;       		// last line in file
+	line *scroll;     		// top of current scroll position
+	int linepos;      		// byte position on line
+	int getvlnpos;     		// visual line position (for tabs, utf8)
+	undo *undos;  			// linked list of undos
+	undo *redos;  			// linked list of redos
+	char *filename;			// buffers filename
 } buf;
 
 int is_eolch(char c);
 pos curpos(buf *b);
 int delln(buf *b, line *l);
-char curch(buf *b);							// current character
-char nextch(buf *b);							// next character
-char prevch(buf *b);							// previous character
-int eos(char *c);							// distance to end of string
-int getcurln(buf *b);							// get distance between b->scroll and b->cur (get visual y position of cursor)
-int getvlnpos(buf *b);							// get visual x cursor position (handles tabs, etc)
+char curch(buf *b);			// current character
+char nextch(buf *b);			// next character
+char prevch(buf *b);			// previous character
+int eos(char *c);			// distance to end of string
+int getcurln(buf *b);			// get visual y position of cursor
+int getvlnpos(buf *b);			// get visual x cursor position
 
 int swap(pos *s, pos *e);
 line *rngcpy(pos *start, pos *end);
@@ -269,8 +269,8 @@ int m_prevln(buf *b) {
 		b->cur = b->cur->p;
 		if(b->cur == b->scroll && b->scroll->p) {
 			b->scroll = b->scroll->p;
-			scrl(-1); // this is a junk call to make sure scrolling doesn't goof display
-		}
+			scrl(-1); // this is a junk call to make sure
+		}			  // scrolling doesn't goof display
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
 		return -1;
@@ -318,7 +318,7 @@ int e_del(buf *b, pos start, pos end) {
 	pushundo(b, &start, &end);
 	if(start.l == end.l)
 		if(is_eolch(ENDC[1])) {
-			memmove(STARTC, ENDC, strlen(ENDC) + 1); // TODO: fixme
+			memmove(STARTC, ENDC, strlen(ENDC) + 1); // FIXME
 		} else
 			memmove(STARTC, ENDC, strlen(ENDC) + 1);
 	else {
@@ -375,7 +375,8 @@ int e_undo(buf *b, pos start, pos end) {
 
 //// BUFFER FUNCTIONS ////
 
-// TODO: chunk file? if memory is ever an issue, that'll be the easiest thing to do.
+// TODO: chunk file? if memory is ever an issue,
+// that'll be the easiest thing to do.
 line *loadfilebuf(buf *b, const char *fname) {
 	FILE *f = fopen(fname, "r");
 	if(f == NULL) ERROR("invalid file");
@@ -467,14 +468,16 @@ void promptcmd(buf *b) { // TODO: refactor
 
 //// INPUT HANDLERS / DRAWS ////
 
-#define EDIT_MOTION(edit, motion) s = curpos(b);        \
-								  d = motion;	         \
-								  e = curpos(b);        \
-							      if(d<0) swap(&s, &e);  \
-								  edit(b, s, e);         \
-								  b->linepos = s.p;
+#define EDIT_MOTION(edit, motion) 			\
+				s = curpos(b);		\
+				d = motion; 		\
+				e = curpos(b);		\
+				if(d<0) swap(&s, &e);	\
+				edit(b, s, e);		\
+				b->linepos = s.p;
 
-int do_motion (buf *b, char c) { // motion is handled here. it returns direction of motion
+int do_motion (buf *b, char c) {// motion is handled here.
+				// it returns direction of motion
 	switch(c) {
 		case 'k':
 			return m_prevln(b);
@@ -517,7 +520,9 @@ void command_mode(buf *b) {
 				if(c == 'd') // TODO: move somewhere saner
 					// TODO: add undo
 					delln(b, b->cur);
-				else { // heh. macros will break here if braces aren't in place... oops
+				else {
+					// heh. macros will break here if
+					// braces aren't in place... oops
 					EDIT_MOTION(e_del, do_motion(b, c));
 				}
 				clrtoeol();
@@ -598,7 +603,7 @@ void quit(buf *b) {
 }
 
 int main(void) {
-	if((win = initscr()) == NULL) {fprintf(stderr, "error initializing ncurses");}
+	if((win = initscr()) == NULL) ERROR("error initializing ncurses");
 	noecho();
 	scrollok(win, 1);
 
