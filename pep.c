@@ -10,7 +10,7 @@
 
 // configs
 #define MAXLINE 1024  							// maximum possible line length
-#define TABSTOP 5     							// width of tab
+#define TABSTOP 8     							// width of tab
 #define STATUS_LENGTH 256						// max length of status text
 #define COMMAND_LEN 256 						// max command length
 
@@ -31,8 +31,8 @@ typedef struct {
 
 typedef struct undo { 							// saves an entire line in the undo list
 	pos p;			  					// pointer to position where undo should be inserted
-	line *l;								// stores changes
-	enum {DELETED, CHANGED} t;				// whether line was deleted or changed
+	line *l;							// stores changes
+	enum {DELETED, CHANGED} t;					// whether line was deleted or changed
 	struct undo *n;	  						// next undo (linked list)
 } undo;
 
@@ -51,12 +51,12 @@ typedef struct {
 int is_eolch(char c);
 pos curpos(buf *b);
 int delln(buf *b, line *l);
-char curch(buf *b);						// current character
-char nextch(buf *b);					// next character
-char prevch(buf *b);					// previous character
-int eos(char *c);						// distance to end of string
-int getcurln(buf *b);					// get distance between b->scroll and b->cur (get visual y position of cursor)
-int getvlnpos(buf *b);					// get visual x cursor position (handles tabs, etc)
+char curch(buf *b);							// current character
+char nextch(buf *b);							// next character
+char prevch(buf *b);							// previous character
+int eos(char *c);							// distance to end of string
+int getcurln(buf *b);							// get distance between b->scroll and b->cur (get visual y position of cursor)
+int getvlnpos(buf *b);							// get visual x cursor position (handles tabs, etc)
 
 int swap(pos *s, pos *e);
 line *rngcpy(pos *start, pos *end);
