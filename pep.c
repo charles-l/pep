@@ -10,8 +10,8 @@
 
 // configs
 #define MAXLINE 1024  							// maximum possible line length
-#define UNDOSIZE 256							// maximum number of undos
 #define TABSTOP 5     							// width of tab
+#define STATUS_LENGTH 256						// max length of status text
 
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
 #define KEY_ESC 27    							// escape keycode
@@ -30,6 +30,7 @@ typedef struct {
 typedef struct undo { 							// saves an entire line in the undo list
 	pos p;			  					// pointer to position where undo should be inserted
 	line *l;								// stores changes
+	enum {DELETED, CHANGED} t;				// whether line was deleted or changed
 	struct undo *n;	  						// next undo (linked list)
 } undo;
 
@@ -42,6 +43,7 @@ typedef struct {
 	int calcvlnpos;     						// visual line position (to take into account tabs, (future) utf8(?), etc)
 	undo *undos;  							// linked list of undos
 	undo *redos;  							// linked list of redos
+	char *filename;							// buffers filename
 } buf;
 
 void pushundo(buf *b, pos *start, pos *end);				// creates an undo and shoves it into the current buffer undo list
@@ -57,6 +59,7 @@ int delln(buf *b, line *l);						// used internall with delete edit function
 int swap(pos *s, pos *e);						// swap two pos
 pos curpos(buf *b); 							// create a pos for current position
 line *rngcpy(pos *start, pos *end);					// copy around a range of lines
+void filestatus(buf *b);
 
 // motions (must return 1 for forward, -1 for backwards)
 int m_nextwrd(buf *b);   						// move to next word
@@ -72,6 +75,7 @@ int m_jump(buf *b, pos start);						// jump to position in file
 // edits (tracks difference between two motions and operates on inbetween)
 int e_del(buf *b, pos start, pos end);					// delete
 int e_insert(buf *b);							// insert on line
+int e_new_line(buf *b);							// insert a new line below
 int e_join(buf *b, pos start, pos end);					// join current and next line
 int e_undo(buf *b, pos start, pos end);					// undo
 
@@ -152,6 +156,8 @@ void pushundo(buf *b, pos *start, pos *end) {
 	u->n = b->undos;
 	if(start->l == end->l)
 		u->l = lncpy(start, end);
+	else
+		u->l = rngcpy(start, end);
 	b->undos = u;
 }
 
@@ -333,6 +339,18 @@ int e_insert(buf *b) { // TODO: refactor
 	return 0;
 }
 
+int e_new_line(buf *b) {
+	line *l = malloc(sizeof(line));
+	l->n = b->cur->n;
+	l->p = b->cur;
+	l->s = strdup("");
+	b->cur->n->p = l;
+	b->cur->n = l;
+	b->cur = l;
+	clrtobot();
+	return 0;
+}
+
 int e_undo(buf *b, pos start, pos end) {
 	if(b->undos != NULL) {
 		b->undos->l->n = b->undos->p.l->n;
@@ -340,10 +358,14 @@ int e_undo(buf *b, pos start, pos end) {
 
 		*(b->undos->p.l) = *(b->undos->l); // TODO: maybe memcpy?
 
+		b->cur = b->undos->p.l;
+		b->linepos = b->undos->p.p;
+
 		undo *u = b->undos;
 		b->undos = b->undos->n;
 		free(u);
 	}
+	return 0;
 }
 
 pos curpos(buf *b) {
@@ -403,7 +425,8 @@ void input(buf *b) { // other input gets handled here
 	switch(c = getch()) {
 		case 'd':
 			c = getch();
-			if(c == 'd')
+			if(c == 'd') // TODO: move somewhere saner
+				// TODO: add undo
 				delln(b, b->cur);
 			else { // heh. macros will break here if braces aren't in place... oops
 				EDIT_MOTION(e_del, do_motion(b, c));
@@ -424,6 +447,22 @@ void input(buf *b) { // other input gets handled here
 		case 'u':
 			e_undo(b, (pos) {NULL, 0}, (pos) {NULL, 0});
 			break;
+		case ' ':
+			filestatus(b);
+			break;
+		case 'o':
+			e_new_line(b);
+			m_bol(b);
+			display(b); // force redraw
+			e_insert(b);
+			break;
+		case 'O':
+			m_prevln(b);
+			m_bol(b);
+			e_new_line(b);
+			display(b);
+			e_insert(b);
+			break;
 		case ':':
 			promptcmd(b);
 			break;
@@ -431,6 +470,13 @@ void input(buf *b) { // other input gets handled here
 			if(do_motion(b, c))
 				break;
 	}
+}
+
+void filestatus(buf *b) {
+	char s[STATUS_LENGTH];
+	strncat(s, "editing ", STATUS_LENGTH);
+	strncat(s, b->filename, STATUS_LENGTH);
+	showmsg(s);
 }
 
 // TODO: chunk file? if memory is ever an issue, that'll be the easiest thing to do.
@@ -452,6 +498,7 @@ line *load_file(buf *b, const char *fname) {
 		}
 		b->last = l;
 	}
+	b->filename = (char *) fname;
 }
 
 void freebuf(buf *b) {
@@ -497,7 +544,7 @@ void display(buf *b) {
 	line *l = b->scroll;
 	b->calcvlnpos = calcvlnpos(b);
 	for(int i = 0; l != NULL; l = l->n, i++) {
-		if(i > LINES - 2) break; // TODO: don't use LINES to allow for rescaling
+		if(i > LINES - 2) break;
 		move(i, 0);
 		for(char *c = l->s; c[0] != '\0'; c++) {
 			switch(c[0]) {

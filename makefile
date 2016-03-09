@@ -1,2 +1,3 @@
+CC=gcc
 all:
-	cc -g pep.c -o pep -lncurses
+	$(CC) -g pep.c -o pep -lncurses
