@@ -42,52 +42,54 @@ typedef struct {
 	line *last;       						// last line in file
 	line *scroll;     						// top of current scroll position
 	int linepos;      						// position on line (actual byte position)
-	int calcvlnpos;     						// visual line position (to take into account tabs, (future) utf8(?), etc)
+	int getvlnpos;     						// visual line position (to take into account tabs, (future) utf8(?), etc)
 	undo *undos;  							// linked list of undos
 	undo *redos;  							// linked list of redos
 	char *filename;							// buffers filename
 } buf;
 
-void pushundo(buf *b, pos *start, pos *end);				// creates an undo and shoves it into the current buffer undo list
-void mvmsg(); 								// move cursor to prompt
-char get_c(buf *b);							// get the current character
-char get_nc(buf *b);							// get the next character
-char get_pc(buf *b);							// get the previous character
-int is_eolch(char c);							// check if a character is an eol char
-int eos(char *c);							// find end of string
-int calcln(buf *b);							// calculate distance between b->scroll and b->cur
-int calcvlnpos(buf *b);							// calculate visual position of cursor
-int delln(buf *b, line *l);						// used internall with delete edit function
-int swap(pos *s, pos *e);						// swap two pos
-pos curpos(buf *b); 							// create a pos for current position
-line *rngcpy(pos *start, pos *end);					// copy around a range of lines
-void filestatus(buf *b);
-char *insert_mode(buf *b);
-void command_mode(buf *b);
+int is_eolch(char c);
+pos curpos(buf *b);
+int delln(buf *b, line *l);
+char curch(buf *b);						// current character
+char nextch(buf *b);					// next character
+char prevch(buf *b);					// previous character
+int eos(char *c);						// distance to end of string
+int getcurln(buf *b);					// get distance between b->scroll and b->cur (get visual y position of cursor)
+int getvlnpos(buf *b);					// get visual x cursor position (handles tabs, etc)
 
-// motions (must return 1 for forward, -1 for backwards)
-int m_nextwrd(buf *b);   						// move to next word
+int swap(pos *s, pos *e);
+line *rngcpy(pos *start, pos *end);
+line *lncpy(pos *start, pos *end);
+void pushundo(buf *b, pos *start, pos *end);
+
+int m_nextch(buf *b);
+int m_nextwrd(buf *b);
 int m_prevwrd(buf *b);
-int m_nextch(buf *b);							// next character
 int m_prevch(buf *b);
-int m_nextln(buf *b);							// next line
+int m_eol(buf *b);
+int m_bol(buf *b);
+int m_jump(buf *b, pos start);
 int m_prevln(buf *b);
-int m_eol(buf *b);							// end of line
-int m_bol(buf *b);							// beginning of line
-int m_jump(buf *b, pos start);						// jump to position in file
+int m_nextln(buf *b);
 
-// edits (tracks difference between two motions and operates on inbetween)
-int e_del(buf *b, pos start, pos end);					// delete
-int e_insert(buf *b);							// insert on line
-int e_new_line(buf *b);							// insert a new line below
-int e_join(buf *b, pos start, pos end);					// join current and next line
-int e_undo(buf *b, pos start, pos end);					// undo
+int e_join(buf *b, pos start, pos end);
+int e_del(buf *b, pos start, pos end);
+int e_insert(buf *b);
+int e_new_line(buf *b);
+int e_undo(buf *b, pos start, pos end);
 
-line *load_file(buf *b, const char *fname);
+line *loadfilebuf(buf *b, const char *fname);
 void freebuf(buf *b);
-void showmsg(char *s);							// show a message in the status bar
-void promptcmd(buf *b);						// run a command from the prompt
-void drawbuf(buf *b);							// main draw function
+void drawbuf(buf *b);
+void filestatus(buf *b);
+
+void mvmsg();
+void showmsg(char *s);
+void promptcmd(buf *b);
+
+void command_mode(buf *b);
+char *insert_mode(buf *b);
 void quit(buf *b);
 
 // globals
@@ -97,33 +99,56 @@ int is_eolch(char c) {
 	return c == '\0' || c == '\n';
 }
 
+pos curpos(buf *b) {
+	pos p = {b->cur, b->linepos};
+	return p;
+}
+
 line *dupln(line *l) {
 	line *r = malloc(sizeof(line));
 	*r = *l;
 	return r;
 }
 
-char get_c(buf *b) {
+int delln(buf *b, line *l) {
+	if(l->p) l->p->n = l->n ? l->n : NULL;
+	if(l->n) l->n->p = l->p ? l->p : NULL;
+
+	if(l == b->scroll) b->scroll = b->scroll->n;
+	if(l == b->cur)    b->cur = b->cur->n;
+
+	free(l->s);
+	free(l); l = NULL;
+	clrtobot();
+}
+
+char curch(buf *b) {
 	return b->cur->s[b->linepos];
 }
 
-char get_nc(buf *b) {
-	if(get_c(b) == '\0') return '\0';
+char nextch(buf *b) {
+	if(curch(b) == '\0') return '\0';
 	return b->cur->s[b->linepos];
 }
 
-char get_pc(buf *b) {
-	if(b->linepos == 0) return get_c(b);
+char prevch(buf *b) {
+	if(b->linepos == 0) return curch(b);
 	return b->cur->s[b->linepos - 1];
 }
 
-int calcln(buf *b) {
+int eos(char *c) {
+	int i = 0;
+	while(c[0] != '\0') {c++; i++;}
+	return i;
+}
+
+int getcurln(buf *b) {
 	int i = 0;
 	for(line *l = b->scroll; l != b->cur; l = l->n, i++);
 	return i;
 }
 
-int calcvlnpos(buf *b) {
+int getvlnpos(buf *b) {
 	int i = 0;
 	for(int j = 0; j < b->linepos; j++)
 		switch(b->cur->s[j]) {
@@ -137,7 +162,15 @@ int calcvlnpos(buf *b) {
 	return i;
 }
 
-line *rngcpy(pos *start, pos *end) {
+int swap(pos *s, pos *e) {
+	pos t;
+	t = *e;
+	*e = *s;
+	*s = t;
+	return 0;
+}
+
+line *rngcpy(pos *start, pos *end) { // TODO: remove or combine with lncpy
 	line *r = malloc(sizeof(line));
 	r->n = NULL;
 	r->p = NULL;
@@ -148,7 +181,7 @@ line *rngcpy(pos *start, pos *end) {
 	return r;
 }
 
-line *lncpy(pos *start, pos *end) {
+line *lncpy(pos *start, pos *end) { // TODO: remove or combine with rngcpy
 	line *r = malloc(sizeof(line));
 	r->n = NULL;
 	r->p = NULL;
@@ -170,8 +203,10 @@ void pushundo(buf *b, pos *start, pos *end) {
 	b->undos = u;
 }
 
+//// MOTIONS ////
+
 int m_nextch(buf *b) {
-	if(!is_eolch(b->cur->s[b->linepos + 1])) {
+	if(!is_eolch(nextch(b))) {
 		b->linepos++;
 		return 1;
 	}
@@ -180,7 +215,7 @@ int m_nextch(buf *b) {
 
 int m_nextwrd(buf *b) {
 	if(m_nextch(b))
-		if(!isalpha(get_c(b)) && !isspace(get_c(b)))
+		if(!isalpha(curch(b)) && !isspace(curch(b)))
 			return 1;
 		else
 			return m_nextwrd(b);
@@ -193,7 +228,7 @@ int m_nextwrd(buf *b) {
 
 int m_prevwrd(buf *b) {
 	if(m_prevch(b))
-		if(!isalpha(get_c(b)) && !isspace(get_c(b)))
+		if(!isalpha(curch(b)) && !isspace(curch(b)))
 			return -1;
 		else
 			return m_prevwrd(b);
@@ -213,7 +248,7 @@ int m_prevch(buf *b) {
 }
 
 int m_eol(buf *b) {
-	for(b->linepos = 0; !is_eolch(b->cur->s[b->linepos + 1]); b->linepos++);
+	for(b->linepos = 0; !is_eolch(nextch(b)); b->linepos++);
 	return 1;
 }
 
@@ -247,7 +282,7 @@ int m_nextln(buf *b) {
 	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
-		if(calcln(b) >= LINES - 2) {
+		if(getcurln(b) >= LINES - 2) {
 			b->scroll = b->scroll->n;
 			scrl(1); // so is this one
 		}
@@ -258,23 +293,10 @@ int m_nextln(buf *b) {
 	return 0;
 }
 
-int eos(char *c) {
-	int i = 0;
-	while(c[0] != '\0') {c++; i++;}
-	return i;
-}
+//// EDITS ////
 
-int delln(buf *b, line *l) {
-	if(l->p) l->p->n = l->n ? l->n : NULL;
-	if(l->n) l->n->p = l->p ? l->p : NULL;
-
-	if(l == b->scroll) b->scroll = b->scroll->n;
-	if(l == b->cur)    b->cur = b->cur->n;
-
-	free(l->s);
-	free(l); l = NULL;
-	clrtobot();
-}
+#define STARTC (start.l->s + start.p)
+#define ENDC   (end.l->s + end.p)
 
 int e_join(buf *b, pos start, pos end) {
 	size_t i = strlen(b->cur->s) + strlen(b->cur->n->s);
@@ -291,9 +313,6 @@ int e_join(buf *b, pos start, pos end) {
 	b->cur->s = s;
 	return 0;
 }
-
-#define STARTC (start.l->s + start.p)
-#define ENDC   (end.l->s + end.p)
 
 int e_del(buf *b, pos start, pos end) {
 	pushundo(b, &start, &end);
@@ -354,18 +373,99 @@ int e_undo(buf *b, pos start, pos end) {
 	return 0;
 }
 
-pos curpos(buf *b) {
-	pos p = {b->cur, b->linepos};
-	return p;
+//// BUFFER FUNCTIONS ////
+
+// TODO: chunk file? if memory is ever an issue, that'll be the easiest thing to do.
+line *loadfilebuf(buf *b, const char *fname) {
+	FILE *f = fopen(fname, "r");
+	if(f == NULL) ERROR("invalid file");
+	char s[MAXLINE];
+	for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
+		line *l = malloc(sizeof(line));
+		l->s = strdup(s);
+		if(i == 0) {
+			l->n = NULL;
+			l->p = NULL;
+			b->first = l;
+		} else {
+			l->n = NULL;
+			l->p = b->last;
+			b->last->n = l;
+		}
+		b->last = l;
+	}
+	b->filename = (char *) fname;
 }
 
-int swap(pos *s, pos *e) {
-	pos t;
-	t = *e;
-	*e = *s;
-	*s = t;
-	return 1;
+void freebuf(buf *b) {
+	while(b->first != NULL) {
+		free(b->first->s);
+		free(b->first);
+		b->first = b->first->n;
+	}
 }
+
+void drawbuf(buf *b) {
+	line *l = b->scroll;
+	b->getvlnpos = getvlnpos(b);
+	for(int i = 0; l != NULL; l = l->n, i++) {
+		if(i > LINES - 2) break;
+		move(i, 0);
+		for(char *c = l->s; c[0] != '\0'; c++) {
+			switch(c[0]) {
+				case '\t':
+					for(int i = 0; i < TABSTOP; i++)
+						addch(' ');
+					break;
+				default:
+					addch(c[0]);
+					break;
+			}
+		}
+	}
+	move(getcurln(b), b->getvlnpos);
+	refresh();
+}
+
+//// PROMPT ////
+
+void filestatus(buf *b) {
+	char s[STATUS_LENGTH];
+	strncat(s, "editing ", STATUS_LENGTH);
+	strncat(s, b->filename, STATUS_LENGTH);
+	showmsg(s);
+}
+
+void mvmsg() { // move to the message box
+	move(LINES - 1, 0);
+}
+
+void showmsg(char *s) { // display a message in the prompt box
+	mvmsg();
+	clrtoeol();
+	addstr(s);
+	wredrawln(win, LINES - 1, 1);
+}
+
+void promptcmd(buf *b) { // TODO: refactor
+	char com[COMMAND_LEN];
+
+	showmsg(":"); // pop prompt
+
+	echo();
+	scrollok(win, 0);
+	getnstr(com, COMMAND_LEN);
+	scrollok(win, 1);
+	noecho();
+
+	if(com[0] == 'q') {
+		quit(b);
+	}
+
+	showmsg(com); // TODO: replace with command call
+}
+
+//// INPUT HANDLERS / DRAWS ////
 
 #define EDIT_MOTION(edit, motion) s = curpos(b);        \
 								  d = motion;	         \
@@ -402,35 +502,6 @@ int do_motion (buf *b, char c) { // motion is handled here. it returns direction
 		default:
 			return 0;
 	}
-}
-
-void filestatus(buf *b) {
-	char s[STATUS_LENGTH];
-	strncat(s, "editing ", STATUS_LENGTH);
-	strncat(s, b->filename, STATUS_LENGTH);
-	showmsg(s);
-}
-
-// TODO: chunk file? if memory is ever an issue, that'll be the easiest thing to do.
-line *load_file(buf *b, const char *fname) {
-	FILE *f = fopen(fname, "r");
-	if(f == NULL) ERROR("invalid file");
-	char s[MAXLINE];
-	for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
-		line *l = malloc(sizeof(line));
-		l->s = strdup(s);
-		if(i == 0) {
-			l->n = NULL;
-			l->p = NULL;
-			b->first = l;
-		} else {
-			l->n = NULL;
-			l->p = b->last;
-			b->last->n = l;
-		}
-		b->last = l;
-	}
-	b->filename = (char *) fname;
 }
 
 void command_mode(buf *b) {
@@ -485,7 +556,7 @@ void command_mode(buf *b) {
 				promptcmd(b);
 				break;
 			default:
-				if(do_motion(b, c))
+				if(do_motion(b, c)) // assume it's a motion
 					break;
 		}
 	}
@@ -497,7 +568,7 @@ char *insert_mode(buf *b) { // TODO: refactor
 	int i = 1;
 	char c;
 	while((c = getch()) != KEY_ESC) {
-		int l = calcln(b);
+		int l = getcurln(b);
 		switch(c) {
 			case KEY_BS:
 				r[i--] = '\0';
@@ -518,65 +589,6 @@ char *insert_mode(buf *b) { // TODO: refactor
 	return r;
 }
 
-void freebuf(buf *b) {
-	while(b->first != NULL) {
-		free(b->first->s);
-		free(b->first);
-		b->first = b->first->n;
-	}
-}
-
-void mvmsg() { // move to the message box
-	move(LINES - 1, 0);
-}
-
-void showmsg(char *s) { // display a message in the prompt box
-	mvmsg();
-	clrtoeol();
-	addstr(s);
-	wredrawln(win, LINES - 1, 1);
-}
-
-void promptcmd(buf *b) { // TODO: refactor
-	char com[COMMAND_LEN];
-
-	showmsg(":"); // pop prompt
-
-	echo();
-	scrollok(win, 0);
-	getnstr(com, COMMAND_LEN);
-	scrollok(win, 1);
-	noecho();
-
-	if(com[0] == 'q') {
-		quit(b);
-	}
-
-	showmsg(com); // TODO: replace with command call
-}
-
-void drawbuf(buf *b) {
-	line *l = b->scroll;
-	b->calcvlnpos = calcvlnpos(b);
-	for(int i = 0; l != NULL; l = l->n, i++) {
-		if(i > LINES - 2) break;
-		move(i, 0);
-		for(char *c = l->s; c[0] != '\0'; c++) {
-			switch(c[0]) {
-				case '\t':
-					for(int i = 0; i < TABSTOP; i++)
-						addch(' ');
-					break;
-				default:
-					addch(c[0]);
-					break;
-			}
-		}
-	}
-	move(calcln(b), b->calcvlnpos);
-	refresh();
-}
-
 void quit(buf *b) {
 	freebuf(b);
 	endwin();
@@ -591,11 +603,11 @@ int main(void) {
 	scrollok(win, 1);
 
 	buf b = {NULL, NULL, NULL, 0, 0};
-	line *n = load_file(&b, "./pep.c");
+	line *n = loadfilebuf(&b, "./pep.c");
 
 	b.cur = b.first;
 	b.linepos = 0;
-	b.calcvlnpos = 0;
+	b.getvlnpos = 0;
 	b.scroll = b.first;
 	b.undos = NULL;
 	b.redos = NULL;
