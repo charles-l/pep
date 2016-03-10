@@ -309,7 +309,10 @@ int m_bol(buf *b) {
 
 int m_jump(buf *b, pos start) { // ignores end
 	b->cur = start.l;
-	b->scroll = start.l;
+	if(start.l->p)
+		b->scroll = start.l->p;
+	else
+		b->scroll = start.l;
 	clear();
 }
 
@@ -341,6 +344,12 @@ int m_nextln(buf *b) {
 		return 1;
 	}
 	return 0;
+}
+
+int m_boscr(buf *b) {
+	b->cur = b->scroll->n;
+	m_bol(b);
+	return -1;
 }
 
 //// EDITS ////
@@ -613,6 +622,9 @@ void command_mode(buf *b) {
 				drawbuf(b);
 				e_insert(b);
 				break;
+			case 'H':
+				m_boscr(b);
+				break;
 			case ':':
 				promptcmd(b);
 				break;
@@ -632,6 +644,9 @@ char *insert_mode(buf *b) { // TODO: refactor
 		switch(c) {
 			case KEY_BS:
 				remch(r);
+				break;
+			case '\n': // FIXME
+				e_new_line(b);
 				break;
 			default:
 				appendch(r, c);
