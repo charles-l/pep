@@ -29,10 +29,12 @@ typedef struct {
 	int p;   		  	// linepos
 } pos;
 
+enum undo_t {DELETED, CHANGED};
+
 typedef struct undo { 			// saves an entire line in the undo list
 	pos p;			  	// undo position
 	line *l;			// stores changes
-	enum {DELETED, CHANGED} t;	// whether line was deleted or changed
+	enum undo_t t;
 	struct undo *n;	  		// next undo (linked list)
 } undo;
 
@@ -66,7 +68,8 @@ int getvlnpos(buf *b);			// get visual x cursor position
 int swap(pos *s, pos *e);
 line *rngcpy(pos *start, pos *end);
 line *lncpy(pos *start, pos *end);
-void pushundo(buf *b, pos *start, pos *end);
+line *insln(buf *b, line *p, char *s);  // add a new line after p, with content s (s is strdupped)
+void pushundo(buf *b, pos *start, pos *end, enum undo_t t);
 string *newstr(char *content, size_t n);
 void appendstr(string *s, char *c);
 void appendch(string *s, char c);
@@ -201,10 +204,11 @@ line *lncpy(pos *start, pos *end) { // TODO: remove or combine with rngcpy
 	return r;
 }
 
-void pushundo(buf *b, pos *start, pos *end) {
+void pushundo(buf *b, pos *start, pos *end, enum undo_t t) {
 	undo *u = malloc(sizeof(undo));
 	u->p = curpos(b);
 	u->n = b->undos;
+	u->t = t;
 	if(start->l == end->l)
 		u->l = lncpy(start, end);
 	else
@@ -374,10 +378,10 @@ int e_join(buf *b, pos start, pos end) {
 }
 
 int e_del(buf *b, pos start, pos end) {
-	pushundo(b, &start, &end);
-	if(start.l == end.l)
+	if(start.l == end.l) {
+		pushundo(b, &start, &end, CHANGED);
 		memmove(STARTC, ENDC, strlen(ENDC) + 1); // FIXME?
-	else {
+	} else {
 		// for visual selection:
 		//int i = eos(start.l->s);
 		//e_del(b, start, (pos) {start.l, i});
@@ -409,14 +413,18 @@ int e_insert(buf *b) { // TODO: refactor
 	return 0;
 }
 
-int e_new_line(buf *b) {
+line *insln(buf *b, line *p, char *s) { // p is the line to insert after, s is the content of the new line
 	line *l = malloc(sizeof(line));
-	l->n = b->cur->n;
-	l->p = b->cur;
-	l->s = strdup("");
-	b->cur->n->p = l;
-	b->cur->n = l;
-	b->cur = l;
+	l->n = p->n;
+	l->p = p;
+	l->s = strdup(s);
+	p->n->p = l;
+	p->n = l;
+	return l;
+}
+
+int e_new_line(buf *b) {
+	b->cur = insln(b, b->cur, "");
 	clrtobot();
 	return 0;
 }
@@ -426,9 +434,15 @@ int e_undo(buf *b, pos start, pos end) {
 		b->undos->l->n = b->undos->p.l->n;
 		b->undos->l->p = b->undos->p.l->p;
 
-		*(b->undos->p.l) = *(b->undos->l); // TODO: maybe memcpy?
+		line *l;
+		if(b->undos->t == CHANGED) {
+			*(b->undos->p.l) = *(b->undos->l); // TODO: maybe memcpy?
+			l = b->undos->p.l;
+		} else if(b->undos->t == DELETED) {
+			l = insln(b, b->undos->p.l->p, b->undos->l->s);
+		}
 
-		b->cur = b->undos->p.l;
+		b->cur = l;
 		b->linepos = b->undos->p.p;
 
 		undo *u = b->undos;
@@ -582,10 +596,12 @@ void command_mode(buf *b) {
 		switch(c = getch()) {
 			case 'd':
 				c = getch();
-				if(c == 'd') // TODO: move somewhere saner
+				if(c == 'd') { // TODO: move somewhere saner
 					// TODO: add undo
+					pos p = curpos(b);
+					pushundo(b, &p, &p, DELETED);
 					delln(b, b->cur);
-				else {
+				} else {
 					// heh. macros will break here if
 					// braces aren't in place... oops
 					EDIT_MOTION(e_del, do_motion(b, c));
