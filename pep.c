@@ -53,7 +53,6 @@ typedef struct {
 	line *last;       		// last line in file
 	line *scroll;     		// top of current scroll position
 	int linepos;      		// byte position on line
-	int getvlnpos;     		// visual line position (for tabs, utf8)
 	undo *undos;  			// linked list of undos
 	undo *redos;  			// linked list of redos
 	char *filename;			// buffers filename
@@ -67,7 +66,7 @@ char nextch(buf *b);			// next character
 char prevch(buf *b);			// previous character
 int eos(char *c);			// distance to end of string
 int getcurln(buf *b);			// get visual y position of cursor
-int getvlnpos(buf *b);			// get visual x cursor position
+int getvlnpos(char *s, int pos);		// get visual x cursor position
 int swap(pos *s, pos *e);
 line *rngcpy(pos *start, pos *end);
 line *lncpy(pos *start, pos *end);
@@ -93,7 +92,7 @@ int e_del(buf *b, pos start, pos end);
 int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, pos start, pos end);
-
+void bpipe(buf *b, pos start, pos end, char *command);		// blocking pipevoid nbpipe(buf *b, pos start, pos end, char *command);		// non blocking pipe
 line *loadfilebuf(buf *b, const char *fname);
 void writefilebuf(buf *b, const char *fname);
 void freebuf(buf *b);
@@ -107,7 +106,6 @@ void promptcmd(buf *b);
 void command_mode(buf *b);
 void insert_mode(buf *b);
 void quit(buf *b);
-
 // globals
 WINDOW *win;
 
@@ -164,10 +162,10 @@ int getcurln(buf *b) {
 	return i;
 }
 
-int getvlnpos(buf *b) {
+int getvlnpos(char *s, int pos) {
 	int i = 0;
-	for(int j = 0; j < b->linepos; j++)
-		switch(b->cur->s[j]) {
+	for(int j = 0; j < pos; j++)
+		switch(s[j]) {
 			case '\t':
 				i += TABSTOP;
 				break;
@@ -508,7 +506,6 @@ void freebuf(buf *b) {
 
 void drawbuf(buf *b) {
 	line *l = b->scroll;
-	b->getvlnpos = getvlnpos(b);
 	int i = 0;
 	for(; l != NULL; l = l->n, i++) {
 		if(i > LINES - 2) break;
@@ -530,7 +527,7 @@ void drawbuf(buf *b) {
 		for(; i < LINES - 2; i++)
 			mvaddch(i, 0, '~');
 	}
-	move(getcurln(b), b->getvlnpos);
+	move(getcurln(b), getvlnpos(b->cur->s, b->linepos));
 	refresh();
 }
 
@@ -702,7 +699,7 @@ void command_mode(buf *b) {
 		}
 	}
 }
-
+//// PIPES ////// TODO: work on thisvoid bpipe(buf *b, pos start, pos end, char *command) {	if(start == NULL) { // pipe the whole file		int pfd[2]; // pipe file descriptor		switch(fork()) {		case -1:			ERROR("unable to fork");			break;		}	}}
 char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
 	size_t l = strlen(s) + strlen(i);
 	char *n = malloc(l);
@@ -746,7 +743,7 @@ void insert_mode(buf *b) { // TODO: refactor (and cleanup)
 		addnstr(b->cur->s, b->linepos);
 		addstr(r->ss);
 		addstr(b->cur->s + b->linepos);
-		move(l, getvlnpos(b) + r->l);
+		move(l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r->ss, r->s));
 		refresh();
 	}
 	END_INSERT();
@@ -775,7 +772,6 @@ int main(int argc, char **argv) {
 
 	b.cur = b.first;
 	b.linepos = 0;
-	b.getvlnpos = 0;
 	b.scroll = b.first;
 	b.undos = NULL;
 	b.redos = NULL;
