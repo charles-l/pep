@@ -14,7 +14,7 @@
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256 		// max command length
 
-#define ERROR(x) fprintf(stderr, "pep: %s", x);
+#define ERROR(x) fprintf(stderr, "pep: %s\n", x);
 #define KEY_ESC 0x1B    		// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6
@@ -95,6 +95,7 @@ int e_new_line(buf *b);
 int e_undo(buf *b, pos start, pos end);
 
 line *loadfilebuf(buf *b, const char *fname);
+void writefilebuf(buf *b, const char *fname);
 void freebuf(buf *b);
 void drawbuf(buf *b);
 void filestatus(buf *b);
@@ -488,6 +489,15 @@ line *loadfilebuf(buf *b, const char *fname) {
 	b->filename = (char *) fname;
 }
 
+void writefilebuf(buf *b, const char *fname) {
+	FILE *f = fopen(fname, "w");
+	if(f == NULL) ERROR("unable to open file for writing");
+	for(line *i = b->first; i != NULL; i = i->n) {
+		fprintf(f, "%s", i->s);
+	}
+	fclose(f);
+}
+
 void freebuf(buf *b) {
 	while(b->first != NULL) {
 		free(b->first->s);
@@ -557,6 +567,9 @@ void promptcmd(buf *b) { // TODO: refactor
 
 	if(com[0] == 'q') {
 		quit(b);
+	}
+	if(com[0] == 'w') {
+		writefilebuf(b, b->filename);
 	}
 
 	showmsg(com); // TODO: replace with command call
@@ -733,7 +746,7 @@ void insert_mode(buf *b) { // TODO: refactor (and cleanup)
 		addnstr(b->cur->s, b->linepos);
 		addstr(r->ss);
 		addstr(b->cur->s + b->linepos);
-		move(l, b->linepos + r->l);
+		move(l, getvlnpos(b) + r->l);
 		refresh();
 	}
 	END_INSERT();
@@ -747,13 +760,18 @@ void quit(buf *b) {
 	exit(0);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
 	if((win = initscr()) == NULL) ERROR("error initializing ncurses");
+	if(argc < 2) {
+		ERROR("No file to open!");
+		exit(1);
+	}
+
 	noecho();
 	scrollok(win, 1);
 
 	buf b = {NULL, NULL, NULL, 0, 0};
-	line *n = loadfilebuf(&b, "./pep.c");
+	line *n = loadfilebuf(&b, argv[1]);
 
 	b.cur = b.first;
 	b.linepos = 0;
