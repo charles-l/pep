@@ -7,6 +7,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <limits.h>
 
 // configs
 #define MAXLINE 1024  			// maximum possible line length
@@ -93,6 +94,8 @@ int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, pos start, pos end);
 void bpipe(buf *b, pos start, pos end, char *command);		// blocking pipevoid nbpipe(buf *b, pos start, pos end, char *command);		// non blocking pipe
+void drawnstr(char *s, int n);
+void drawstr(char *s);
 line *loadfilebuf(buf *b, const char *fname);
 void writefilebuf(buf *b, const char *fname);
 void freebuf(buf *b);
@@ -472,7 +475,7 @@ line *loadfilebuf(buf *b, const char *fname) {
 	char s[MAXLINE];
 	for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
 		line *l = malloc(sizeof(line));
-		l->s = strdup(s);
+		l->s = strndup(s, strlen(s) - 1); // strip off '\n'
 		if(i == 0) {
 			l->n = NULL;
 			l->p = NULL;
@@ -491,7 +494,7 @@ void writefilebuf(buf *b, const char *fname) {
 	FILE *f = fopen(fname, "w");
 	if(f == NULL) ERROR("unable to open file for writing");
 	for(line *i = b->first; i != NULL; i = i->n) {
-		fprintf(f, "%s", i->s);
+		fprintf(f, "%s\n", i->s);
 	}
 	fclose(f);
 }
@@ -504,23 +507,31 @@ void freebuf(buf *b) {
 	}
 }
 
+void drawnstr(char *s, int n) {
+	for(int i = 0; s[0] != '\0' && i < n; s++, i++) {
+		switch(s[0]) {
+			case '\t':
+				for(int i = 0; i < TABSTOP; i++)
+					addch(' ');
+				break;
+			default:
+				addch(s[0]);
+				break;
+		}
+	}
+}
+
+void drawstr(char *s) {
+	drawnstr(s, INT_MAX);
+}
+
 void drawbuf(buf *b) {
 	line *l = b->scroll;
 	int i = 0;
 	for(; l != NULL; l = l->n, i++) {
 		if(i > LINES - 2) break;
 		move(i, 0);
-		for(char *c = l->s; c[0] != '\0'; c++) {
-			switch(c[0]) {
-				case '\t':
-					for(int i = 0; i < TABSTOP; i++)
-						addch(' ');
-					break;
-				default:
-					addch(c[0]);
-					break;
-			}
-		}
+		drawstr(l->s);
 	}
 	if(i < LINES - 2) { // fill empty lines with '~'
 		clrtobot();
@@ -699,7 +710,20 @@ void command_mode(buf *b) {
 		}
 	}
 }
-//// PIPES ////// TODO: work on thisvoid bpipe(buf *b, pos start, pos end, char *command) {	if(start == NULL) { // pipe the whole file		int pfd[2]; // pipe file descriptor		switch(fork()) {		case -1:			ERROR("unable to fork");			break;		}	}}
+//// PIPES ////
+// TODO: work on this
+void bpipe(buf *b, pos start, pos end, char *command) {
+	if(start.l == NULL) {
+		// pipe the whole file
+		int pfd[2]; // pipe file descriptor
+		switch(fork()) {
+			case -1:
+				ERROR("unable to fork");
+				break;
+		}
+	}
+}
+
 char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
 	size_t l = strlen(s) + strlen(i);
 	char *n = malloc(l);
@@ -740,10 +764,10 @@ void insert_mode(buf *b) { // TODO: refactor (and cleanup)
 		}
 		move(l, 0);
 		clrtoeol();
-		addnstr(b->cur->s, b->linepos);
-		addstr(r->ss);
-		addstr(b->cur->s + b->linepos);
-		move(l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r->ss, r->s));
+		drawnstr(b->cur->s, b->linepos);
+		drawstr(r->ss);
+		drawstr(b->cur->s + b->linepos);
+		move(l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r->ss, r->l));
 		refresh();
 	}
 	END_INSERT();
