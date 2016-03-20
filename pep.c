@@ -20,7 +20,6 @@
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6
 #define KEY_CB 2
-#define NULLPOS ((pos) {NULL, 0})
 
 typedef struct line { 			// double linked list
 	char *s;
@@ -28,15 +27,11 @@ typedef struct line { 			// double linked list
 	struct line *p;   		// prev
 } line;
 
-typedef struct {
-	line *l; 		  	// line
-	int p;   		  	// linepos
-} pos;
-
 enum undo_t {DELETED, CHANGED};
 
 typedef struct undo { 			// saves an entire line in the undo list
-	pos p;			  	// undo position
+	line *p;			// starting position
+	int pp;				// starting position offset
 	line *l;			// stores changes
 	enum undo_t t;
 	struct undo *n;	  		// next undo (linked list)
@@ -50,29 +45,27 @@ typedef struct string {			// auto growing string (only use when necessary)
 
 typedef struct {
 	line *first;	  		// first line in file
-	line *cur;		  	// current line
+	line *cur;	  		// current line
 	line *last;       		// last line in file
 	line *scroll;     		// top of current scroll position
 	int linepos;      		// byte position on line
 	undo *undos;  			// linked list of undos
 	undo *redos;  			// linked list of redos
-	char *filename;			// buffers filename
+	const char *filename;		// buffers filename
 } buf;
 
 int is_eolch(char c);
-pos curpos(buf *b);
 int delln(buf *b, line *l);
 char curch(buf *b);			// current character
 char nextch(buf *b);			// next character
 char prevch(buf *b);			// previous character
 int eos(char *c);			// distance to end of string
 int getcurln(buf *b);			// get visual y position of cursor
-int getvlnpos(char *s, int pos);		// get visual x cursor position
-int swap(pos *s, pos *e);
-line *rngcpy(pos *start, pos *end);
-line *lncpy(pos *start, pos *end);
+int getvlnpos(char *s, int pos);	// get visual x cursor position
+int swap(line **s, line **e);
+line *lncpy(line *start, line *end);
 line *insln(buf *b, line *p, char *s);  // add a new line after p, with content s (s is strdupped)
-void pushundo(buf *b, pos *start, pos *end, enum undo_t t);
+void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
 string *newstr(char *content, size_t n);
 void appendstr(string *s, char *c);
 void appendch(string *s, char c);
@@ -84,16 +77,16 @@ int m_prevwrd(buf *b);
 int m_prevch(buf *b);
 int m_eol(buf *b);
 int m_bol(buf *b);
-int m_jump(buf *b, pos start);
+int m_jump(buf *b, line *start);
 int m_prevln(buf *b);
 int m_nextln(buf *b);
 
-int e_join(buf *b, pos start, pos end);
-int e_del(buf *b, pos start, pos end);
+int e_join(buf *b, line *start, line *end, int s, int e);
+int e_del(buf *b, line *start, line *end, int s, int e);
 int e_insert(buf *b);
 int e_new_line(buf *b);
-int e_undo(buf *b, pos start, pos end);
-void bpipe(buf *b, pos start, pos end, char *command);		// blocking pipevoid nbpipe(buf *b, pos start, pos end, char *command);		// non blocking pipe
+int e_undo(buf *b, line *start, line *end, int s, int e);
+void bpipe(buf *b, line *start, line *end, char *command);		// blocking pipe
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 line *loadfilebuf(buf *b, const char *fname);
@@ -114,11 +107,6 @@ WINDOW *win;
 
 int is_eolch(char c) {
 	return c == '\0' || c == '\n';
-}
-
-pos curpos(buf *b) {
-	pos p = {b->cur, b->linepos};
-	return p;
 }
 
 line *dupln(line *l) {
@@ -179,45 +167,32 @@ int getvlnpos(char *s, int pos) {
 	return i;
 }
 
-int swap(pos *s, pos *e) {
-	pos t;
+int swap(line **s, line **e) {
+	line *t;
 	t = *e;
 	*e = *s;
 	*s = t;
 	return 0;
 }
 
-line *rngcpy(pos *start, pos *end) { // TODO: remove or combine with lncpy
+line *lncpy(line *start, line *end) {
 	line *r = malloc(sizeof(line));
 	r->n = NULL;
 	r->p = NULL;
-	if(start->l == end->l) {
-		r->s = malloc(end->p - start->p);
-		memcpy(r->s, start->l + start->p, end->p - start->p);
-	} // TODO: handle multiline ranges
-	return r;
-}
-
-line *lncpy(pos *start, pos *end) { // TODO: remove or combine with rngcpy
-	line *r = malloc(sizeof(line));
-	r->n = NULL;
-	r->p = NULL;
-	if(start->l == end->l) {
-		r->s = malloc(strlen(start->l->s));
-		strcpy(r->s, start->l->s);
+	if(start == end) {
+		r->s = malloc(strlen(start->s));
+		strcpy(r->s, start->s);
 	}
 	return r;
 }
 
-void pushundo(buf *b, pos *start, pos *end, enum undo_t t) {
+void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t) {
 	undo *u = malloc(sizeof(undo));
-	u->p = curpos(b);
+	u->p = b->cur;
+	u->pp = offset;
 	u->n = b->undos;
 	u->t = t;
-	if(start->l == end->l)
-		u->l = lncpy(start, end);
-	else
-		u->l = rngcpy(start, end);
+	u->l = lncpy(start, end);
 	b->undos = u;
 }
 
@@ -316,9 +291,9 @@ int m_bol(buf *b) {
 	return -1;
 }
 
-int m_jump(buf *b, pos start) { // ignores end
-	b->cur = start.l;
-	b->scroll = start.l;
+int m_jump(buf *b, line *start) { // ignores end
+	b->cur = start;
+	b->scroll = start;
 	clear();
 }
 
@@ -380,16 +355,12 @@ int m_prevscr(buf *b) {
 
 //// EDITS ////
 
-#define STARTC (start.l->s + start.p)
-#define ENDC   (end.l->s + end.p)
-
-int e_join(buf *b, pos start, pos end) {
+int e_join(buf *b, line *start, line *end, int x, int y) {
 	size_t i = strlen(b->cur->s) + strlen(b->cur->n->s);
-	char e;
 	char *s = malloc(i + 1);
 	strcat(s, b->cur->s);
 
-	e = eos(s) - 1;	// remove newline
+	int e = strlen(s);
 	if(s[e] == '\n') s[e] = '\0';
 
 	strcat(s, b->cur->n->s);
@@ -399,15 +370,15 @@ int e_join(buf *b, pos start, pos end) {
 	return 0;
 }
 
-int e_del(buf *b, pos start, pos end) {
-	if(start.l == end.l) {
-		pushundo(b, &start, &end, CHANGED);
-		memmove(STARTC, ENDC, strlen(ENDC) + 1); // FIXME?
+int e_del(buf *b, line *start, line *end, int s, int e) {
+	if(start == end) {
+		pushundo(b, start, end, b->linepos, CHANGED);
+		memmove(start->s + s, end->s + e, strlen(end->s + e) + 1);
 	} else {
 		// for visual selection:
 		//int i = eos(start.l->s);
 		//e_del(b, start, (pos) {start.l, i});
-		for(line *l = start.l; l != end.l->n; l = l->n) delln(b, l);
+		for(line *l = start; l != end->n; l = l->n) delln(b, l);
 	}
 	return 0;
 }
@@ -422,6 +393,7 @@ char *insrtstr(char *s, char *i, int p) {
 }
 
 int e_insert(buf *b) { // TODO: refactor
+	pushundo(b, b->cur, b->cur, b->linepos, CHANGED);
 	insert_mode(b);
 	return 0;
 }
@@ -442,21 +414,21 @@ int e_new_line(buf *b) {
 	return 0;
 }
 
-int e_undo(buf *b, pos start, pos end) {
+int e_undo(buf *b, line *start, line *end, int x, int y) {
 	if(b->undos != NULL) {
-		b->undos->l->n = b->undos->p.l->n;
-		b->undos->l->p = b->undos->p.l->p;
+		b->undos->l->n = b->undos->p->n;
+		b->undos->l->p = b->undos->p->p;
 
 		line *l;
 		if(b->undos->t == CHANGED) {
-			*(b->undos->p.l) = *(b->undos->l); // TODO: maybe memcpy?
-			l = b->undos->p.l;
+			*(b->undos->p) = *(b->undos->l); // TODO: maybe memcpy?
+			l = b->undos->p;
 		} else if(b->undos->t == DELETED) {
-			l = insln(b, b->undos->p.l->p, b->undos->l->s);
+			l = insln(b, b->undos->p->p, b->undos->l->s);
 		}
 
 		b->cur = l;
-		b->linepos = b->undos->p.p;
+		b->linepos = b->undos->pp;
 
 		undo *u = b->undos;
 		b->undos = b->undos->n;
@@ -487,7 +459,7 @@ line *loadfilebuf(buf *b, const char *fname) {
 		}
 		b->last = l;
 	}
-	b->filename = (char *) fname;
+	b->filename = fname;
 }
 
 void writefilebuf(buf *b, const char *fname) {
@@ -504,6 +476,12 @@ void freebuf(buf *b) {
 		free(b->first->s);
 		free(b->first);
 		b->first = b->first->n;
+	}
+	while(b->undos != NULL) {
+		free(b->undos->l->s);
+		free(b->undos->l);
+		free(b->undos);
+		b->undos = b->undos->n;
 	}
 }
 
@@ -586,12 +564,13 @@ void promptcmd(buf *b) { // TODO: refactor
 //// INPUT HANDLERS / DRAWS ////
 
 #define EDIT_MOTION(edit, motion) 			\
-	s = curpos(b);		\
+ss = b->linepos;	\
+s = b->cur;		\
 d = motion; 		\
-e = curpos(b);		\
+e = b->cur;		\
+ee = b->linepos;	\
 if(d<0) swap(&s, &e);	\
-edit(b, s, e);		\
-b->linepos = s.p;
+edit(b, s, e, b->linepos, 0);
 
 int do_motion(buf *b, char c) {// motion is handled here.
 	// it returns direction of motion
@@ -614,11 +593,11 @@ int do_motion(buf *b, char c) {// motion is handled here.
 			return m_bol(b);
 		case 'G': // FIXME
 			m_bol(b);
-			return m_jump(b, (pos) {b->last, 0});
+			return m_jump(b, b->last);
 		case 'g':
 			c = getch();
 			if(c == 'g')
-				return m_jump(b, (pos) {b->first, 0});
+				return m_jump(b, b->first);
 		case KEY_CF:
 			return m_nextscr(b);
 		case KEY_CB:
@@ -630,8 +609,10 @@ int do_motion(buf *b, char c) {// motion is handled here.
 
 void command_mode(buf *b) {
 	char c; // character from getch
-	pos s;  // start of motion
-	pos e;  // end of motion
+	line *s;// start of motion
+	line *e;// end of motion
+	int ss;	// start offest
+	int ee; // end offset
 	int d;  // direction
 	while(1) {
 		drawbuf(b);
@@ -640,8 +621,7 @@ void command_mode(buf *b) {
 				c = getch();
 				if(c == 'd') { // TODO: move somewhere saner
 					// TODO: add undo
-					pos p = curpos(b);
-					pushundo(b, &p, &p, DELETED);
+					pushundo(b, b->cur, b->cur, b->linepos, DELETED);
 					delln(b, b->cur);
 				} else {
 					// heh. macros will break here if
@@ -673,11 +653,11 @@ void command_mode(buf *b) {
 				clrtoeol();
 				break;
 			case 'J':
-				e_join(b, NULLPOS, NULLPOS);
+				e_join(b, NULL, NULL, 0, 0);
 				clrtoeol();
 				break;
 			case 'u':
-				e_undo(b, NULLPOS, NULLPOS);
+				e_undo(b, NULL, NULL, 0, 0);
 				break;
 			case ' ':
 				filestatus(b);
@@ -712,8 +692,8 @@ void command_mode(buf *b) {
 }
 //// PIPES ////
 // TODO: work on this
-void bpipe(buf *b, pos start, pos end, char *command) {
-	if(start.l == NULL) {
+void bpipe(buf *b, line *start, line *end, char *command) {
+	if(start == NULL) {
 		// pipe the whole file
 		int pfd[2]; // pipe file descriptor
 		switch(fork()) {
