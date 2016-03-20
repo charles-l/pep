@@ -17,6 +17,7 @@
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
 #define KEY_ESC 0x1B    		// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
+#define NULLPOS ((pos) {NULL, 0})
 
 typedef struct line { 			// double linked list
 	char *s;
@@ -101,7 +102,7 @@ void showmsg(char *s);
 void promptcmd(buf *b);
 
 void command_mode(buf *b);
-char *insert_mode(buf *b);
+void insert_mode(buf *b);
 void quit(buf *b);
 
 // globals
@@ -400,16 +401,7 @@ char *insrtstr(char *s, char *i, int p) {
 }
 
 int e_insert(buf *b) { // TODO: refactor
-	char *i = insert_mode(b);
-	size_t l = strlen(b->cur->s) + strlen(i);
-	char *n = malloc(l);
-	strncpy(n, b->cur->s, b->linepos);
-	n[b->linepos] = '\0';
-	strcat(n, i);
-	strcat(n, b->cur->s + b->linepos);
-	free(b->cur->s);
-	b->cur->s = n;
-	b->linepos = b->linepos + strlen(i) - 1;
+	insert_mode(b);
 	return 0;
 }
 
@@ -616,11 +608,11 @@ void command_mode(buf *b) {
 				clrtoeol();
 				break;
 			case 'J':
-				e_join(b, (pos) {NULL, 0}, (pos) {NULL, 0});
+				e_join(b, NULLPOS, NULLPOS);
 				clrtoeol();
 				break;
 			case 'u':
-				e_undo(b, (pos) {NULL, 0}, (pos) {NULL, 0});
+				e_undo(b, NULLPOS, NULLPOS);
 				break;
 			case ' ':
 				filestatus(b);
@@ -651,19 +643,40 @@ void command_mode(buf *b) {
 	}
 }
 
-char *insert_mode(buf *b) { // TODO: refactor
+char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
+	size_t l = strlen(s) + strlen(i);
+	char *n = malloc(l);
+	strncpy(n, s, p);
+	n[p] = '\0';
+	strcat(n, i);
+	strcat(n, s + p);
+	return n;
+}
+
+#define END_INSERT() \
+	n = insertstr(b->cur->s, r->ss, b->linepos); \
+	free(b->cur->s);				   \
+	b->cur->s = n;					   \
+	b->linepos = b->linepos + strlen(r->ss) - 1;	   \
+	freestr(r);
+
+void insert_mode(buf *b) { // TODO: refactor (and cleanup)
 	line *l = b->cur;
 	string *r = newstr("", 128); // auto grow string
 	char c;
+	char *n;
 	while((c = getch()) != KEY_ESC) {
 		int l = getcurln(b);
 		switch(c) {
 			case KEY_BS:
 				remch(r);
 				break;
-			case '\n': // FIXME
+			case '\n':
+				END_INSERT();
 				e_new_line(b);
-				break;
+				m_bol(b);
+				drawbuf(b);
+				return insert_mode(b);
 			default:
 				appendch(r, c);
 				break;
@@ -676,7 +689,7 @@ char *insert_mode(buf *b) { // TODO: refactor
 		move(l, b->linepos + r->l);
 		refresh();
 	}
-	return r->ss;
+	END_INSERT();
 }
 
 void quit(buf *b) {
