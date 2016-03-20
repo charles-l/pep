@@ -3,7 +3,7 @@ A minimal orthogonal Vim-like clone.
 
 ## Current features
 * Basic editing tasks
-* ~400 SLOC (goal is to stay under 8K - less if possible)
+* ~600 SLOC (goal is to stay under 8K - less if possible)
 
 ## Design
 * Motions
