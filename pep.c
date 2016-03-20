@@ -339,7 +339,7 @@ int m_nextln(buf *b) {
 	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
-		if(getcurln(b) >= LINES - 2) {
+		if(getcurln(b) >= LINES - 1) {
 			b->scroll = b->scroll->n;
 			scrl(1); // so is this one
 		}
@@ -369,6 +369,7 @@ int m_nextscr(buf *b) {
 int m_prevscr(buf *b) {
 	m_boscr(b);
 	for(int i = 0; i < LINES - 1 && m_prevln(b); i++);
+	m_eoscr(b);
 	return -1;
 }
 
