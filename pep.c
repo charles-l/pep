@@ -357,19 +357,22 @@ int m_boscr(buf *b) {
 }
 
 int m_eoscr(buf *b) {
-	for(int i = getcurln(b); i < LINES - 1 && m_nextln(b); i++);
+	for(int i = getcurln(b); i < LINES - 2 && m_nextln(b); i++);
 }
 
 int m_nextscr(buf *b) {
 	m_eoscr(b);
 	m_nextln(b);
 	b->scroll = b->cur;
+	clear(); // force clear
+	return 1;
 }
 
 int m_prevscr(buf *b) {
 	m_boscr(b);
 	for(int i = 0; i < LINES - 1 && m_prevln(b); i++);
 	m_eoscr(b);
+	clear(); // force clear
 	return -1;
 }
 
@@ -627,6 +630,21 @@ void command_mode(buf *b) {
 				clrtoeol();
 				break;
 			case 'i':
+				e_insert(b);
+				break;
+			case 'I':
+				m_bol(b);
+				drawbuf(b);
+				e_insert(b);
+				break;
+			case 'a':
+				m_nextch(b);
+				drawbuf(b);
+				e_insert(b);
+				break;
+			case 'A':
+				m_eol(b);
+				drawbuf(b);
 				e_insert(b);
 				break;
 			case 'x':
