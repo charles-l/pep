@@ -17,6 +17,8 @@
 #define ERROR(x) fprintf(stderr, "pep: %s", x);
 #define KEY_ESC 0x1B    		// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
+#define KEY_CF 6
+#define KEY_CB 2
 #define NULLPOS ((pos) {NULL, 0})
 
 typedef struct line { 			// double linked list
@@ -314,21 +316,18 @@ int m_bol(buf *b) {
 
 int m_jump(buf *b, pos start) { // ignores end
 	b->cur = start.l;
-	if(start.l->p)
-		b->scroll = start.l->p;
-	else
-		b->scroll = start.l;
+	b->scroll = start.l;
 	clear();
 }
 
 int m_prevln(buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
-		b->cur = b->cur->p;
-		if(b->cur == b->scroll && b->scroll->p) {
+		if(b->cur == b->scroll) {
 			b->scroll = b->scroll->p;
 			scrl(-1); // this is a junk call to make sure
 		}			  // scrolling doesn't goof display
+		b->cur = b->cur->p;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
 		return -1;
@@ -352,8 +351,24 @@ int m_nextln(buf *b) {
 }
 
 int m_boscr(buf *b) {
-	b->cur = b->scroll->n;
+	b->cur = b->scroll;
 	m_bol(b);
+	return -1;
+}
+
+int m_eoscr(buf *b) {
+	for(int i = getcurln(b); i < LINES - 1 && m_nextln(b); i++);
+}
+
+int m_nextscr(buf *b) {
+	m_eoscr(b);
+	m_nextln(b);
+	b->scroll = b->cur;
+}
+
+int m_prevscr(buf *b) {
+	m_boscr(b);
+	for(int i = 0; i < LINES - 1 && m_prevln(b); i++);
 	return -1;
 }
 
@@ -480,7 +495,8 @@ void freebuf(buf *b) {
 void drawbuf(buf *b) {
 	line *l = b->scroll;
 	b->getvlnpos = getvlnpos(b);
-	for(int i = 0; l != NULL; l = l->n, i++) {
+	int i = 0;
+	for(; l != NULL; l = l->n, i++) {
 		if(i > LINES - 2) break;
 		move(i, 0);
 		for(char *c = l->s; c[0] != '\0'; c++) {
@@ -494,6 +510,11 @@ void drawbuf(buf *b) {
 					break;
 			}
 		}
+	}
+	if(i < LINES - 2) { // fill empty lines with '~'
+		clrtobot();
+		for(; i < LINES - 2; i++)
+			mvaddch(i, 0, '~');
 	}
 	move(getcurln(b), b->getvlnpos);
 	refresh();
@@ -573,6 +594,10 @@ int do_motion(buf *b, char c) {// motion is handled here.
 			c = getch();
 			if(c == 'g')
 				return m_jump(b, (pos) {b->first, 0});
+		case KEY_CF:
+			return m_nextscr(b);
+		case KEY_CB:
+			return m_prevscr(b);
 		default:
 			return 0;
 	}
@@ -632,6 +657,9 @@ void command_mode(buf *b) {
 				break;
 			case 'H':
 				m_boscr(b);
+				break;
+			case 'L':
+				m_eoscr(b);
 				break;
 			case ':':
 				promptcmd(b);
