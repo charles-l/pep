@@ -240,7 +240,7 @@ void freestr(string *s) {
 //// MOTIONS ////
 
 int m_nextch(buf *b) {
-	if(!is_eolch(nextch(b))) {
+	if(nextch(b) != '\0') {
 		b->linepos++;
 		return 1;
 	}
@@ -249,28 +249,35 @@ int m_nextch(buf *b) {
 
 int m_nextwrd(buf *b) {
 	if(m_nextch(b))
-		if(!isalpha(curch(b)) && !isspace(curch(b)))
-			return 1;
+		if(!isspace(curch(b))
+				&& ((isspace(prevch(b)) && !isspace(curch(b)))
+					|| (isalpha(prevch(b)) && !isalpha(curch(b)))
+					|| (!isalpha(prevch(b)) && isalpha(curch(b)))))
+				return 1;
 		else
 			return m_nextwrd(b);
 	else {
 		m_nextln(b);
-		return m_bol(b);
+		m_bol(b);
+		return 1;
 	}
-	return 1;
 }
 
 int m_prevwrd(buf *b) {
 	if(m_prevch(b))
-		if(!isalpha(curch(b)) && !isspace(curch(b)))
-			return -1;
+		if(b->linepos == 0 ||
+				!isspace(curch(b))
+				&& ((isspace(prevch(b)) && !isspace(curch(b)))
+					|| (isalpha(prevch(b)) && !isalpha(curch(b)))
+					|| (!isalpha(prevch(b)) && isalpha(curch(b)))))
+				return -1;
 		else
 			return m_prevwrd(b);
 	else {
 		m_prevln(b);
-		return m_eol(b);
+		m_eol(b);
+		return -1;
 	}
-	return -1;
 }
 
 int m_prevch(buf *b) {
