@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ncurses.h>
@@ -363,10 +362,10 @@ int m_prevscr(buf *b) {
 
 //// EDITS ////
 
-int e_join(buf *b, line *start, line *end, int x, int y) {
+int e_join(buf *b, line *start, line *end, int _a, int _b) {
 	size_t i = strlen(b->cur->s) + strlen(b->cur->n->s);
 	char *s = malloc(i + 1);
-	strcat(s, b->cur->s);
+	strcpy(s, b->cur->s);
 
 	int e = strlen(s);
 	if(s[e] == '\n') s[e] = '\0';
@@ -420,7 +419,7 @@ int e_new_line(buf *b) {
 	return 0;
 }
 
-int e_undo(buf *b, line *start, line *end, int x, int y) {
+int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 	if(b->undos != NULL) {
 		b->undos->l->n = b->undos->p->n;
 		b->undos->l->p = b->undos->p->p;
@@ -571,10 +570,10 @@ void promptcmd(buf *b) { // TODO: refactor
 
 #define EDIT_MOTION(edit, motion) 			\
 ss = b->linepos; s = b->cur; \
-d = motion;		     \
+d = motion;		     		 \
 ee = b->linepos; e = b->cur; \
-if(d<0) { 		     \
-	swap(&s, &e);	     \
+if(d<0) { 		     		 \
+	swap(&s, &e); 			 \
 	if(ss != ee) {ss ^= ee; ee ^= ss; ss ^= ee;} \
 } \
 edit(b, s, e, ss, ee);
