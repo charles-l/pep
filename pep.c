@@ -226,9 +226,12 @@ void appendch(string *s, char c) {
 	s->ss[s->l] = '\0';
 }
 
-void remch(string *s) { // backspace
-	if(s->l > 0)
+int remch(string *s) { // backspace
+	if(s->l > 0) {
 		s->ss[--s->l] = '\0';
+		return 1;
+	}
+	return 0;
 }
 
 void freestr(string *s) {
@@ -759,15 +762,23 @@ char *insertstr(char *s, char *i, int p) { // insert string i into s at position
 	freestr(r);
 
 void insert_mode(buf *b) { // TODO: refactor (and cleanup)
-	line *l = b->cur;
 	string *r = newstr("", 128); // auto grow string
 	char c;
 	char *n;
+	int m = 0;
 	while((c = getch()) != KEY_ESC) {
 		int l = getcurln(b);
 		switch(c) {
 			case KEY_BS:
-				remch(r);
+				if(!remch(r)) {
+					m_prevln(b);
+					m = strlen(b->cur->s);
+					e_join(b, NULL, NULL, 0, 0);
+					clear();
+					drawbuf(b);
+					l--;
+					b->linepos = m;
+				}
 				break;
 			case '\n':
 				END_INSERT();
