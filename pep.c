@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <limits.h>
+#include <sys/wait.h>
 
 // configs
 #define MAXLINE 1024  			// maximum possible line length
@@ -382,11 +383,9 @@ int e_del(buf *b, line *start, line *end, int s, int e) {
 		pushundo(b, start, end, b->linepos, CHANGED);
 		memmove(start->s + s, end->s + e, strlen(end->s + e) + 1);
 	} else {
-		// for visual selection:
-		//int i = eos(start.l->s);
-		//e_del(b, start, (pos) {start.l, i});
 		for(line *l = start; l != end->n; l = l->n) delln(b, l);
 	}
+	b->linepos = s;
 	return 0;
 }
 
@@ -571,13 +570,14 @@ void promptcmd(buf *b) { // TODO: refactor
 //// INPUT HANDLERS / DRAWS ////
 
 #define EDIT_MOTION(edit, motion) 			\
-ss = b->linepos;	\
-s = b->cur;		\
-d = motion; 		\
-e = b->cur;		\
-ee = b->linepos;	\
-if(d<0) swap(&s, &e);	\
-edit(b, s, e, b->linepos, 0);
+ss = b->linepos; s = b->cur; \
+d = motion;		     \
+ee = b->linepos; e = b->cur; \
+if(d<0) { 		     \
+	swap(&s, &e);	     \
+	if(ss != ee) {ss ^= ee; ee ^= ss; ss ^= ee;} \
+} \
+edit(b, s, e, ss, ee);
 
 int do_motion(buf *b, char c) {// motion is handled here.
 	// it returns direction of motion
@@ -602,8 +602,7 @@ int do_motion(buf *b, char c) {// motion is handled here.
 			m_bol(b);
 			return m_jump(b, b->last);
 		case 'g':
-			c = getch();
-			if(c == 'g')
+			if(getch() == 'g')
 				return m_jump(b, b->first);
 		case KEY_CF:
 			return m_nextscr(b);
@@ -615,19 +614,16 @@ int do_motion(buf *b, char c) {// motion is handled here.
 }
 
 void command_mode(buf *b) {
-	char c; // character from getch
-	line *s;// start of motion
-	line *e;// end of motion
-	int ss;	// start offest
-	int ee; // end offset
-	int d;  // direction
+	char c; 	// character from getch
+	line *s, *e;	// start, end of motion
+	int ss, ee, d;	// start, end offest, and direction
 	while(1) {
 		drawbuf(b);
 		switch(c = getch()) {
 			case 'd':
 				c = getch();
 				if(c == 'd') { // TODO: move somewhere saner
-					// TODO: add undo
+					// TODO: replace this with a call to e_del
 					pushundo(b, b->cur, b->cur, b->linepos, DELETED);
 					delln(b, b->cur);
 				} else {
@@ -691,21 +687,48 @@ void command_mode(buf *b) {
 			case ':':
 				promptcmd(b);
 				break;
+			case '|':
+				bpipe(b, NULL, NULL, "tr a b");
+				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
 					break;
 		}
 	}
 }
+
 //// PIPES ////
-// TODO: work on this
+// Maybe use this for reading in a file too?
 void bpipe(buf *b, line *start, line *end, char *command) {
 	if(start == NULL) {
 		// pipe the whole file
 		int pfd[2]; // pipe file descriptor
+		if(pipe(pfd) == -1) ERROR("unable to pipe");
+		char buf[MAXLINE];
 		switch(fork()) {
 			case -1:
 				ERROR("unable to fork");
+				break;
+			case 0: // read from pipe
+				close(pfd[1]);
+				while(read(pfd[0], buf, MAXLINE)) {
+					buf[strlen(buf) - 1] = '\0'; // remove newline
+					insln(b, b->cur, buf);
+				}
+				close(pfd[0]);
+				clear(); // force screen clear
+				break;
+			default : // write to pipe
+				close(pfd[0]);
+				for(line *l = b->first; l != NULL; l = l->n) {
+					char *m = malloc(strlen(l->s) + 2);
+					sprintf(m, "%s\n", l->s);
+					write(pfd[1], m, strlen(l->s) + 2);
+					free(m);
+				}
+				execlp(command, NULL);
+				close(pfd[1]);
+				wait(NULL);
 				break;
 		}
 	}
@@ -721,6 +744,8 @@ char *insertstr(char *s, char *i, int p) { // insert string i into s at position
 	return n;
 }
 
+// I hate this macro. It's a hcak in place to prevent
+// duplicated stuff in the insert function
 #define END_INSERT() \
 	n = insertstr(b->cur->s, r->ss, b->linepos); \
 	free(b->cur->s);				   \
