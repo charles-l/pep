@@ -3,15 +3,23 @@ A minimal orthogonal Vim-like clone.
 
 ## Current features
 * Basic editing tasks
-* ~600 SLOC (goal is to stay under 8K - less if possible)
+    * Insert mode
+    * Delete, join text and lines
+    * Undo (partially implemented)
+    * Read file
+    * Write file
+* ~700 SLOC (goal is to stay under 8K - less if possible)
 
 ## Design
+* There's a buffer
+* The buffer has a linked-list of lines
 * Motions
-    * Motions just move the cursor from one place to another. They're prefixed with an `m_`
-    * Motions are easy to add. They just require the current buffer.
+    * Motions just move the cursor from one place to another. In code they're prefixed with an `m_`
 * Edits
     * Edits track the difference between two motions and perform some transformation on the inbetween
 
 ## TODO
+* Make usable
 * Have config header
 * Make keybindings easier to configure
+* Make extensibility easier
