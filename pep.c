@@ -304,6 +304,12 @@ int m_jump(buf *b, line *start) { // ignores end
 	clear();
 }
 
+int m_smartbol(buf *b) {
+	m_bol(b);
+	while(isspace(curch(b))) b->linepos++;
+	return -1;
+}
+
 int m_prevln(buf *b) {
 	if(b->cur->p) {
 		int oldpos = b->linepos;
@@ -596,7 +602,7 @@ int do_motion(buf *b, char c) {// motion is handled here.
 		case '$':
 			return m_eol(b);
 		case '^':
-			return m_bol(b);
+			return m_smartbol(b);
 		case 'G': // FIXME
 			m_bol(b);
 			return m_jump(b, b->last);
