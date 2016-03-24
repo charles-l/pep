@@ -15,7 +15,7 @@
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256 		// max command length
 
-#define ERROR(x) fprintf(stderr, "pep: %s\n", x);
+#define ERROR(x) { fprintf(stderr, "pep: %s\n", x); exit(1); }
 #define KEY_ESC 0x1B    		// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6
@@ -709,7 +709,6 @@ void command_mode(buf *b) {
 // Maybe use this for reading in a file too?
 void bpipe(buf *b, line *start, line *end, char *command) {
 	if(start == NULL) {
-		// pipe the whole file
 		int pfd[2]; // pipe file descriptor
 		if(pipe(pfd) == -1) ERROR("unable to pipe");
 		char buf[MAXLINE];
@@ -717,16 +716,18 @@ void bpipe(buf *b, line *start, line *end, char *command) {
 			case -1:
 				ERROR("unable to fork");
 				break;
-			case 0: // read from pipe
+			case 0: // child
+				dup2(pfd[0], 0);
 				close(pfd[1]);
+				//execlp(command, NULL);
+				execlp("/usr/bin/tr", "tr", "a", "b", NULL);
 				while(read(pfd[0], buf, MAXLINE)) {
 					buf[strlen(buf) - 1] = '\0'; // remove newline
 					insln(b, b->cur, buf);
 				}
-				close(pfd[0]);
-				clear(); // force screen clear
 				break;
-			default : // write to pipe
+			default: // parent
+				dup2(pfd[1], 1);
 				close(pfd[0]);
 				for(line *l = b->first; l != NULL; l = l->n) {
 					char *m = malloc(strlen(l->s) + 2);
@@ -734,9 +735,6 @@ void bpipe(buf *b, line *start, line *end, char *command) {
 					write(pfd[1], m, strlen(l->s) + 2);
 					free(m);
 				}
-				execlp(command, NULL);
-				close(pfd[1]);
-				wait(NULL);
 				break;
 		}
 	}
