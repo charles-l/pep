@@ -86,7 +86,7 @@ int e_del(buf *b, line *start, line *end, int s, int e);
 int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
-void bpipe(buf *b, line *start, line *end, char *command);		// blocking pipe
+void bpipe(buf *b, line *start, line *end, char *command, char **args);	// blocking pipe
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 line *loadfilebuf(buf *b, const char *fname);
@@ -625,6 +625,7 @@ void command_mode(buf *b) {
 	char c; 	// character from getch
 	line *s, *e;	// start, end of motion
 	int ss, ee, d;	// start, end offest, and direction
+	char *command[] = {"tr", "a", "b", NULL};
 	while(1) {
 		drawbuf(b);
 		switch(c = getch()) {
@@ -696,7 +697,7 @@ void command_mode(buf *b) {
 				promptcmd(b);
 				break;
 			case '|':
-				bpipe(b, NULL, NULL, "tr a b");
+				bpipe(b, NULL, NULL, "/usr/bin/tr", command);
 				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
@@ -707,7 +708,7 @@ void command_mode(buf *b) {
 
 //// PIPES ////
 // Maybe use this for reading in a file too?
-void bpipe(buf *b, line *start, line *end, char *command) {
+void bpipe(buf *b, line *start, line *end, char *command, char **args) {
 	if(start == NULL) {
 		int pfd[2]; // pipe file descriptor
 		if(pipe(pfd) == -1) ERROR("unable to pipe");
@@ -719,8 +720,7 @@ void bpipe(buf *b, line *start, line *end, char *command) {
 			case 0: // child
 				dup2(pfd[0], 0);
 				close(pfd[1]);
-				//execlp(command, NULL);
-				execlp("/usr/bin/tr", "tr", "a", "b", NULL);
+				execvp(command, args);
 				while(read(pfd[0], buf, MAXLINE)) {
 					buf[strlen(buf) - 1] = '\0'; // remove newline
 					insln(b, b->cur, buf);
