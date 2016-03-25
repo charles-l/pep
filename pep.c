@@ -738,6 +738,8 @@ void bpipe(buf *b, line *start, line *end, char *command) {
 				break;
 		}
 	}
+	clear();
+	drawbuf(b);
 }
 
 char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
