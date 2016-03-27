@@ -92,7 +92,7 @@ void tpipe(buf *b, line *start, line *end, char *command, char **args); // trans
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 void writefilebuf(buf *b, const char *fname);
-buf *makebuf();
+buf *newbuf();
 buf *loadfilebuf(const char *fname);
 void freebuf(buf *b);
 void drawbuf(buf *b);
@@ -733,7 +733,8 @@ void tpipe(buf *b, line *start, line *end, char *command, char **args) {
 	if(start == NULL) {
 		int pfd[2]; // pipe file descriptor
 		if(pipe(pfd) == -1) ERROR("unable to pipe");
-		char buf[MAXLINE];
+		char lbuf[MAXLINE];
+		buf *n = newbuf("");
 		switch(fork()) {
 			case -1:
 				ERROR("unable to fork");
@@ -742,27 +743,23 @@ void tpipe(buf *b, line *start, line *end, char *command, char **args) {
 				dup2(pfd[0], 0);
 				close(pfd[1]);
 				execvp(command, args);
-				while(read(pfd[0], buf, MAXLINE)) {
-					buf[strlen(buf) - 1] = '\0'; // remove newline
-					insln(b, b->cur, buf);
+				while(read(pfd[0], lbuf, MAXLINE)) {
+					lbuf[strlen(lbuf) - 1] = '\0'; // remove newline
+					insln(n, n->cur, lbuf);
 				}
+				freebuf(b);
+				*b = *n;
 				break;
 			default: // parent
 				dup2(pfd[1], 1);
 				close(pfd[0]);
+				n = newbuf("");
 				for(line *l = b->first; l != NULL; l = l->n) {
 					char *m = malloc(strlen(l->s) + 2);
 					sprintf(m, "%s\n", l->s);
 					write(pfd[1], m, strlen(m));
-					delln(b, l->p);
 					free(m);
 				}
-				b->first = newln("");
-				b->first->n = NULL;
-				b->first->p = NULL;
-				b->last = b->first;
-				b->scroll = b->first;
-				b->cur = b->first;
 				break;
 		}
 	}
@@ -840,7 +837,7 @@ void quit(buf *b) {
 	exit(0);
 }
 
-buf *makebuf() {
+buf *newbuf() {
 	buf *b = malloc(sizeof(buf));
 	b->first = newln("");
 	b->last = b->first;
@@ -858,7 +855,7 @@ int main(int argc, char **argv) {
 	noecho();
 	scrollok(win, 1);
 
-	buf *b = argc < 2 ? makebuf("") : loadfilebuf(argv[1]);
+	buf *b = argc < 2 ? newbuf("") : loadfilebuf(argv[1]);
 
 	command_mode(b);
 
