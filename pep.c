@@ -1,3 +1,4 @@
+// vim: set shiftwidth=8 tabstop=8
 #include <stdlib.h>
 #include <string.h>
 #include <ncurses.h>
@@ -15,7 +16,8 @@
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256 		// max command length
 
-#define ERROR(x) { fprintf(stderr, "pep: %s\n", x); exit(1); }
+#define QERROR(x) { fprintf(stderr, "pep: %s\n", x); exit(1); }
+#define ERROR(x) { fprintf(stderr, "pep: %s\n", x); quit(b); }
 #define KEY_ESC 0x1B    		// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6
@@ -86,11 +88,12 @@ int e_del(buf *b, line *start, line *end, int s, int e);
 int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
-void bpipe(buf *b, line *start, line *end, char *command, char **args);	// blocking pipe
+void tpipe(buf *b, line *start, line *end, char *command, char **args); // transform pipe
 void drawnstr(char *s, int n);
 void drawstr(char *s);
-line *loadfilebuf(buf *b, const char *fname);
 void writefilebuf(buf *b, const char *fname);
+buf *makebuf();
+buf *loadfilebuf(const char *fname);
 void freebuf(buf *b);
 void drawbuf(buf *b);
 void filestatus(buf *b);
@@ -115,16 +118,20 @@ line *dupln(line *l) {
 	return r;
 }
 
-int delln(buf *b, line *l) {
+int delln(buf *b, line *l) { // TODO: refactor
+	if(!l || b->first == b->last) return 0;
+	if(l == b->first) b->first = b->first->n;
+	if(l == b->last) b->last = b->last->p;
 	if(l->p) l->p->n = l->n ? l->n : NULL;
 	if(l->n) l->n->p = l->p ? l->p : NULL;
 
-	if(l == b->scroll) b->scroll = b->scroll->n;
-	if(l == b->cur)    b->cur = b->cur->n;
+	if(l == b->cur)    b->cur    = b->cur->n ? b->cur->n : b->cur->p;
+	if(l == b->scroll) b->scroll = b->scroll->n ? b->scroll->n : b->scroll->p;
 
 	free(l->s);
 	free(l); l = NULL;
 	clrtobot();
+	return 1;
 }
 
 char curch(buf *b) {
@@ -412,12 +419,22 @@ int e_insert(buf *b) { // TODO: refactor
 	return 0;
 }
 
-line *insln(buf *b, line *p, char *s) { // p is the line to insert after, s is the content of the new line
+line *newln(char *s) {
 	line *l = malloc(sizeof(line));
-	l->n = p->n;
-	l->p = p;
 	l->s = strdup(s);
-	p->n->p = l;
+	return l;
+}
+
+line *insln(buf *b, line *p, char *s) { // p is the line to insert after, s is the content of the new line
+	line *l = newln(s);
+	if(p->n) {
+		l->n = p->n;
+		p->n->p = l;
+	} else {
+		l->n = NULL;
+		b->last = l;
+	}
+	l->p = p;
 	p->n = l;
 	return l;
 }
@@ -455,10 +472,11 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 
 // TODO: chunk file? if memory is ever an issue,
 // that'll be the easiest thing to do.
-line *loadfilebuf(buf *b, const char *fname) {
+buf *loadfilebuf(const char *fname) {
+	buf *b = malloc(sizeof(buf));
 	FILE *f = fopen(fname, "r");
-	if(f == NULL) ERROR("invalid file");
 	char s[MAXLINE];
+	if(f == NULL) ERROR("invalid file");
 	for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
 		line *l = malloc(sizeof(line));
 		l->s = strndup(s, strlen(s) - 1); // strip off '\n'
@@ -473,7 +491,10 @@ line *loadfilebuf(buf *b, const char *fname) {
 		}
 		b->last = l;
 	}
+	b->cur = b->first;
+	b->scroll = b->first;
 	b->filename = fname;
+	return b;
 }
 
 void writefilebuf(buf *b, const char *fname) {
@@ -697,7 +718,7 @@ void command_mode(buf *b) {
 				promptcmd(b);
 				break;
 			case '|':
-				bpipe(b, NULL, NULL, "/usr/bin/tr", command);
+				tpipe(b, NULL, NULL, "/usr/bin/tr", command);
 				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
@@ -708,7 +729,7 @@ void command_mode(buf *b) {
 
 //// PIPES ////
 // Maybe use this for reading in a file too?
-void bpipe(buf *b, line *start, line *end, char *command, char **args) {
+void tpipe(buf *b, line *start, line *end, char *command, char **args) {
 	if(start == NULL) {
 		int pfd[2]; // pipe file descriptor
 		if(pipe(pfd) == -1) ERROR("unable to pipe");
@@ -732,15 +753,25 @@ void bpipe(buf *b, line *start, line *end, char *command, char **args) {
 				for(line *l = b->first; l != NULL; l = l->n) {
 					char *m = malloc(strlen(l->s) + 2);
 					sprintf(m, "%s\n", l->s);
-					write(pfd[1], m, strlen(l->s) + 2);
+					write(pfd[1], m, strlen(m));
+					delln(b, l->p);
 					free(m);
 				}
+				b->first = newln("");
+				b->first->n = NULL;
+				b->first->p = NULL;
+				b->last = b->first;
+				b->scroll = b->first;
+				b->cur = b->first;
 				break;
 		}
 	}
 	clear();
 	drawbuf(b);
 }
+
+void lpipe(buf *b, line *start, line *end, char *command, char **args) {} // location pipe
+void spipe(buf *b, line *start, line *end, char *command, char **args) {} // silent pipe
 
 char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
 	size_t l = strlen(s) + strlen(i);
@@ -809,27 +840,28 @@ void quit(buf *b) {
 	exit(0);
 }
 
+buf *makebuf() {
+	buf *b = malloc(sizeof(buf));
+	b->first = newln("");
+	b->last = b->first;
+	b->cur = b->first;
+	b->scroll = b->cur;
+	b->linepos = 0;
+	b->undos = NULL;
+	b->filename = "~";
+	return b;
+}
+
 int main(int argc, char **argv) {
-	if((win = initscr()) == NULL) ERROR("error initializing ncurses");
-	if(argc < 2) {
-		ERROR("No file to open!");
-		exit(1);
-	}
+	if((win = initscr()) == NULL) QERROR("error initializing ncurses");
 
 	noecho();
 	scrollok(win, 1);
 
-	buf b = {NULL, NULL, NULL, 0, 0};
-	line *n = loadfilebuf(&b, argv[1]);
+	buf *b = argc < 2 ? makebuf("") : loadfilebuf(argv[1]);
 
-	b.cur = b.first;
-	b.linepos = 0;
-	b.scroll = b.first;
-	b.undos = NULL;
-	b.redos = NULL;
+	command_mode(b);
 
-	command_mode(&b);
-
-	quit(&b); // shouldn't ever get reached
+	quit(b); // shouldn't ever get reached
 	return 0;
 }
