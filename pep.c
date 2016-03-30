@@ -12,6 +12,7 @@
 
 // configs
 #define MAXLINE 1024  			// maximum possible line length
+#define MAXBUF  16				// maximum possible number of open buffers
 #define TABSTOP 8     			// width of tab
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256 		// max command length
@@ -88,7 +89,12 @@ int e_del(buf *b, line *start, line *end, int s, int e);
 int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
-void tpipe(buf *b, line *start, line *end, char *command, char **args); // transform pipe
+
+void blockpipe(buf *b, line *start, line *end, char *command, char **args, void (*f) (buf *, buf *)); // blocking pipe
+																											// TODO: non-blocking pipe
+void replacepipe(buf *o, buf *n);
+void locationpipe(buf *o, buf *n);
+
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 void writefilebuf(buf *b, const char *fname);
@@ -96,17 +102,20 @@ buf *newbuf();
 buf *loadfilebuf(const char *fname);
 void freebuf(buf *b);
 void drawbuf(buf *b);
+void appendbuf(buf *b);
 void filestatus(buf *b);
 
 void mvmsg();
 void showmsg(char *s);
 void promptcmd(buf *b);
 
-void command_mode(buf *b);
-void insert_mode(buf *b);
+void cmdmode(buf *b);
+void insmode(buf *b);
 void quit(buf *b);
+
 // globals
 WINDOW *win;
+buf *bufs[MAXBUF];
 
 int is_eolch(char c) {
 	return c == '\0' || c == '\n';
@@ -158,6 +167,12 @@ int getcurln(buf *b) {
 	int i = 0;
 	for(line *l = b->scroll; l != b->cur; l = l->n, i++);
 	return i;
+}
+
+int jmpln(buf *b, int i) {
+	b->cur = b->first;
+	while(i-- > 0)
+		m_nextln(b);
 }
 
 int getvlnpos(char *s, int pos) {
@@ -415,7 +430,7 @@ char *insrtstr(char *s, char *i, int p) {
 
 int e_insert(buf *b) { // TODO: refactor
 	pushundo(b, b->cur, b->cur, b->linepos, CHANGED);
-	insert_mode(b);
+	insmode(b);
 	return 0;
 }
 
@@ -642,11 +657,12 @@ int do_motion(buf *b, char c) {// motion is handled here.
 	}
 }
 
-void command_mode(buf *b) {
+void cmdmode(buf *b) {
 	char c; 	// character from getch
 	line *s, *e;	// start, end of motion
 	int ss, ee, d;	// start, end offest, and direction
 	char *command[] = {"tr", "a", "b", NULL};
+	char *search_command[] = {"sed", "-n", "/hi/=", (char *) b->filename, NULL};
 	while(1) {
 		drawbuf(b);
 		switch(c = getch()) {
@@ -718,7 +734,10 @@ void command_mode(buf *b) {
 				promptcmd(b);
 				break;
 			case '|':
-				tpipe(b, NULL, NULL, "/usr/bin/tr", command);
+				blockpipe(b, NULL, NULL, "/usr/bin/tr", command, replacepipe);
+				break;
+			case '/':
+				blockpipe(b, NULL, NULL, "/usr/bin/sed", search_command, locationpipe);
 				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
@@ -729,37 +748,41 @@ void command_mode(buf *b) {
 
 //// PIPES ////
 // Maybe use this for reading in a file too?
-void tpipe(buf *b, line *start, line *end, char *command, char **args) {
+// this is very bad... plz fix (like, not use stdout for instance?)
+void blockpipe(buf *b, line *start, line *end, char *command, char **args, void (*f) (buf *, buf *)) {
 	if(start == NULL) {
 		int pfd[2]; // pipe file descriptor
+		int status;
 		if(pipe(pfd) == -1) ERROR("unable to pipe");
-		char lbuf[MAXLINE];
 		buf *n = newbuf("");
 		switch(fork()) {
 			case -1:
 				ERROR("unable to fork");
 				break;
 			case 0: // child
-				dup2(pfd[0], 0);
-				close(pfd[1]);
 				execvp(command, args);
-				while(read(pfd[0], lbuf, MAXLINE)) {
-					lbuf[strlen(lbuf) - 1] = '\0'; // remove newline
-					insln(n, n->cur, lbuf);
+				switch(fork()) {
+					case -1:
+						ERROR("unable to fork");
+					case 0:
+						dup2(pfd[0], 0);
+						close(pfd[1]);
+						f(b, n);
+						break;
+					default:
+						dup2(pfd[1], 1);
+						close(pfd[0]);
+						for(line *l = b->first; l != NULL; l = l->n) {
+							char *m = malloc(strlen(l->s) + 2);
+							sprintf(m, "%s\n", l->s);
+							write(pfd[1], m, strlen(m));
+							free(m);
+						}
+						break;
 				}
-				freebuf(b);
-				*b = *n;
 				break;
 			default: // parent
-				dup2(pfd[1], 1);
-				close(pfd[0]);
-				n = newbuf("");
-				for(line *l = b->first; l != NULL; l = l->n) {
-					char *m = malloc(strlen(l->s) + 2);
-					sprintf(m, "%s\n", l->s);
-					write(pfd[1], m, strlen(m));
-					free(m);
-				}
+				wait(&status);
 				break;
 		}
 	}
@@ -767,8 +790,26 @@ void tpipe(buf *b, line *start, line *end, char *command, char **args) {
 	drawbuf(b);
 }
 
-void lpipe(buf *b, line *start, line *end, char *command, char **args) {} // location pipe
-void spipe(buf *b, line *start, line *end, char *command, char **args) {} // silent pipe
+void replacepipe(buf *o, buf *n) {
+	char lbuf[MAXLINE];
+	while(read(0, lbuf, MAXLINE)) {
+		lbuf[strlen(lbuf) - 1] = '\0'; // remove newline
+		insln(n, n->cur, lbuf);
+	}
+	freebuf(o);
+	*o = *n;
+}
+
+void locationpipe(buf *o, buf *n) {
+	char lbuf[MAXLINE];
+	while(read(0, lbuf, MAXLINE)) {
+		lbuf[strlen(lbuf) - 1] = '\0'; // remove newline
+		insln(n, n->cur, lbuf);
+	}
+	appendbuf(n);
+	*o = *n;
+	//jmpln(o, atoi(n->first->s));
+}
 
 char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
 	size_t l = strlen(s) + strlen(i);
@@ -780,6 +821,25 @@ char *insertstr(char *s, char *i, int p) { // insert string i into s at position
 	return n;
 }
 
+buf *newbuf() {
+	buf *b = malloc(sizeof(buf));
+	b->first = newln("");
+	b->last = b->first;
+	b->cur = b->first;
+	b->scroll = b->cur;
+	b->linepos = 0;
+	b->undos = NULL;
+	b->filename = "~";
+	return b;
+}
+
+void appendbuf(buf *b) {
+	int i = 0;
+	while(bufs[i] != NULL) i++;
+	bufs[i] = b;
+	if(++i > MAXBUF) ERROR("cannot add new buf");
+}
+
 // I hate this macro. It's a hcak in place to prevent
 // duplicated stuff in the insert function
 #define END_INSERT() \
@@ -789,7 +849,7 @@ char *insertstr(char *s, char *i, int p) { // insert string i into s at position
 	b->linepos = b->linepos + strlen(r->ss) - 1;	   \
 	freestr(r);
 
-void insert_mode(buf *b) { // TODO: refactor (and cleanup)
+void insmode(buf *b) { // TODO: refactor (and cleanup)
 	string *r = newstr("", 128); // auto grow string
 	char c;
 	char *n;
@@ -813,7 +873,7 @@ void insert_mode(buf *b) { // TODO: refactor (and cleanup)
 				e_new_line(b);
 				m_bol(b);
 				drawbuf(b);
-				return insert_mode(b);
+				return insmode(b);
 			default:
 				appendch(r, c);
 				break;
@@ -837,27 +897,17 @@ void quit(buf *b) {
 	exit(0);
 }
 
-buf *newbuf() {
-	buf *b = malloc(sizeof(buf));
-	b->first = newln("");
-	b->last = b->first;
-	b->cur = b->first;
-	b->scroll = b->cur;
-	b->linepos = 0;
-	b->undos = NULL;
-	b->filename = "~";
-	return b;
-}
-
 int main(int argc, char **argv) {
+	bufs[0] = NULL;
 	if((win = initscr()) == NULL) QERROR("error initializing ncurses");
 
 	noecho();
 	scrollok(win, 1);
 
 	buf *b = argc < 2 ? newbuf("") : loadfilebuf(argv[1]);
+	appendbuf(b);
 
-	command_mode(b);
+	cmdmode(b);
 
 	quit(b); // shouldn't ever get reached
 	return 0;
