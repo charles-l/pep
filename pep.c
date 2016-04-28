@@ -90,16 +90,16 @@ int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
 
-void blockpipe(buf *b, line *start, line *end, char *command, char **args, void (*f) (buf *, buf *)); // blocking pipe
-																											// TODO: non-blocking pipe
 void replacepipe(buf *o, buf *n);
 void locationpipe(buf *o, buf *n);
 
+void buf_pipe(buf *b);
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 void writefilebuf(buf *b, const char *fname);
 buf *newbuf();
 buf *loadfilebuf(const char *fname);
+buf *readbuf(FILE *f, const char *fname);
 void freebuf(buf *b);
 void drawbuf(buf *b);
 void appendbuf(buf *b);
@@ -485,11 +485,8 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 
 //// BUFFER FUNCTIONS ////
 
-// TODO: chunk file? if memory is ever an issue,
-// that'll be the easiest thing to do.
-buf *loadfilebuf(const char *fname) {
+buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
 	buf *b = malloc(sizeof(buf));
-	FILE *f = fopen(fname, "r");
 	char s[MAXLINE];
 	if(f == NULL) ERROR("invalid file");
 	for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
@@ -509,6 +506,14 @@ buf *loadfilebuf(const char *fname) {
 	b->cur = b->first;
 	b->scroll = b->first;
 	b->filename = fname;
+}
+
+// TODO: chunk file? if memory is ever an issue,
+// that'll be the easiest thing to do.
+buf *loadfilebuf(const char *fname) {
+	FILE *f = fopen(fname, "r");
+	buf *b = readbuf(f, fname);
+	fclose(f);
 	return b;
 }
 
@@ -734,60 +739,13 @@ void cmdmode(buf *b) {
 				promptcmd(b);
 				break;
 			case '|':
-				blockpipe(b, NULL, NULL, "/usr/bin/tr", command, replacepipe);
-				break;
-			case '/':
-				blockpipe(b, NULL, NULL, "/usr/bin/sed", search_command, locationpipe);
+				buf_pipe(b);
 				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
 					break;
 		}
 	}
-}
-
-//// PIPES ////
-// Maybe use this for reading in a file too?
-// this is very bad... plz fix (like, not use stdout for instance?)
-void blockpipe(buf *b, line *start, line *end, char *command, char **args, void (*f) (buf *, buf *)) {
-	if(start == NULL) {
-		int pfd[2]; // pipe file descriptor
-		int status;
-		if(pipe(pfd) == -1) ERROR("unable to pipe");
-		buf *n = newbuf("");
-		switch(fork()) {
-			case -1:
-				ERROR("unable to fork");
-				break;
-			case 0: // child
-				execvp(command, args);
-				switch(fork()) {
-					case -1:
-						ERROR("unable to fork");
-					case 0:
-						dup2(pfd[0], 0);
-						close(pfd[1]);
-						f(b, n);
-						break;
-					default:
-						dup2(pfd[1], 1);
-						close(pfd[0]);
-						for(line *l = b->first; l != NULL; l = l->n) {
-							char *m = malloc(strlen(l->s) + 2);
-							sprintf(m, "%s\n", l->s);
-							write(pfd[1], m, strlen(m));
-							free(m);
-						}
-						break;
-				}
-				break;
-			default: // parent
-				wait(&status);
-				break;
-		}
-	}
-	clear();
-	drawbuf(b);
 }
 
 void replacepipe(buf *o, buf *n) {
@@ -809,6 +767,35 @@ void locationpipe(buf *o, buf *n) {
 	appendbuf(n);
 	*o = *n;
 	//jmpln(o, atoi(n->first->s));
+}
+
+void buf_pipe(buf *b) {
+	// UGHGGG figure this out
+	line *l = b->first;
+	int p[2];
+	int buf[MAXLINE];
+	pipe(p);
+	switch(fork()) {
+		case -1:
+			// TODO: use better error management
+			perror("fork");
+			break;
+		case 0:
+			close(p[0]);
+			dup2(1, p[1]);
+			FILE *f = popen("tr a b > x", "w");
+			do {
+				fwrite(l->s, sizeof(char), strlen(l->s), f);
+			} while (l = l->n);
+			fclose(f);
+			close(p[1]);
+		default:
+			close(p[1]);
+			//dup(p[0]);
+			//while(read(0, ))
+			close(p[0]);
+			break;
+	}
 }
 
 char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
