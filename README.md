@@ -8,7 +8,8 @@ A minimal orthogonal Vim-like clone.
     * Undo (partially implemented)
     * Read file
     * Write file
-* ~700 SLOC (goal is to stay under 8K - less if possible)
+    * Basic piping out (you need to modify code for now)
+* ~800 SLOC (goal is to stay under 2K - less if possible)
 
 ## Design
 * There's a buffer
