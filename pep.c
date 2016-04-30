@@ -71,6 +71,7 @@ int swap(line **s, line **e);
 line *lncpy(line *start, line *end);
 line *insln(buf *b, line *p, char *s);  // add a new line after p, with content s (s is strdupped)
 void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
+
 string *newstr(char *content, size_t n);
 void appendstr(string *s, char *c);
 void appendch(string *s, char c);
@@ -99,7 +100,8 @@ buf *p_replace(buf *o, buf *n, FILE *f);
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 void writefilebuf(buf *b, const char *fname);
-buf *newbuf();
+
+buf *newbuf(void);
 buf *loadfilebuf(const char *fname);
 buf *readbuf(FILE *f, const char *fname);
 void freebuf(buf *b);
@@ -439,6 +441,8 @@ int e_insert(buf *b) { // TODO: refactor
 line *newln(char *s) {
 	line *l = malloc(sizeof(line));
 	l->s = strdup(s);
+	l->n = NULL;
+	l->p = NULL;
 	return l;
 }
 
@@ -756,7 +760,7 @@ buf *p_insert(buf *o, buf *n, FILE *f) {
 		CHOPN(buf);
 		insln(o, o->cur, buf);
 	}
-	freebuf(n); // delete the new buf since we don't need it
+	//freebuf(n); // delete the new buf since we don't need it
 	return NULL;
 }
 
@@ -765,7 +769,7 @@ buf *p_insert(buf *o, buf *n, FILE *f) {
 buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *o, buf *n, FILE *f)) {
 	line *l = b->first;
 
-	int p[2]; // first pipe
+	int p[2];  // first pipe
 	int pp[2]; // second pipe
 	FILE *f;
 
@@ -807,7 +811,8 @@ buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *o, buf *n, FILE *f)) {
 
 			f = fdopen(pp[0], "r"); // it's easier to fgets
 			buf *n = newbuf();
-			return fun(b, n, f);
+			freebuf(n);
+			return fun(b, b, f);
 	}
 }
 
@@ -821,7 +826,7 @@ char *insertstr(char *s, char *i, int p) { // insert string i into s at position
 	return n;
 }
 
-buf *newbuf() {
+buf *newbuf(void) {
 	buf *b = malloc(sizeof(buf));
 	b->first = newln("");
 	b->last = b->first;
@@ -904,7 +909,7 @@ int main(int argc, char **argv) {
 	noecho();
 	scrollok(win, 1);
 
-	buf *b = argc < 2 ? newbuf("") : loadfilebuf(argv[1]);
+	buf *b = argc < 2 ? newbuf() : loadfilebuf(argv[1]);
 	appendbuf(b);
 
 	cmdmode(b);
