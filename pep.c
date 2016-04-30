@@ -1,4 +1,4 @@
-// vim: set shiftwidth=8 tabstop=8
+// vim: sw=8 ts=8
 #include <stdlib.h>
 #include <string.h>
 #include <ncurses.h>
@@ -12,7 +12,7 @@
 
 // configs
 #define MAXLINE 1024  			// maximum possible line length
-#define MAXBUF  16				// maximum possible number of open buffers
+#define MAXBUF  16			// maximum possible number of open buffers
 #define TABSTOP 8     			// width of tab
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256 		// max command length
@@ -23,6 +23,8 @@
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6
 #define KEY_CB 2
+
+#define CHOPN(s) s[strlen(s)-1]='\0'    // chop newline
 
 typedef struct line { 			// double linked list
 	char *s;
@@ -90,10 +92,10 @@ int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
 
-void replacepipe(buf *o, buf *n);
-void locationpipe(buf *o, buf *n);
+buf *pipebuf(buf *b, char *cmd, buf *(*fun)(buf *o, buf *n, FILE *f));
+buf *p_insert(buf *o, buf *n, FILE *f);
+buf *p_replace(buf *o, buf *n, FILE *f);
 
-void pipebuf(buf *b, char *cmd);
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 void writefilebuf(buf *b, const char *fname);
@@ -739,7 +741,7 @@ void cmdmode(buf *b) {
 				promptcmd(b);
 				break;
 			case '|':
-				pipebuf(b, "tr a b");
+				pipebuf(b, "tr a b", p_insert);
 				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
@@ -748,35 +750,24 @@ void cmdmode(buf *b) {
 	}
 }
 
-void replacepipe(buf *o, buf *n) {
-	char lbuf[MAXLINE];
-	while(read(0, lbuf, MAXLINE)) {
-		lbuf[strlen(lbuf) - 1] = '\0'; // remove newline
-		insln(n, n->cur, lbuf);
+buf *p_insert(buf *o, buf *n, FILE *f) {
+	char buf[MAXLINE];
+	while(fgets(buf, MAXLINE, f) > 0) {
+		CHOPN(buf);
+		insln(o, o->cur, buf);
 	}
-	freebuf(o);
-	*o = *n;
+	freebuf(n); // delete the new buf since we don't need it
+	return NULL;
 }
 
-void locationpipe(buf *o, buf *n) {
-	char lbuf[MAXLINE];
-	while(read(0, lbuf, MAXLINE)) {
-		lbuf[strlen(lbuf) - 1] = '\0'; // remove newline
-		insln(n, n->cur, lbuf);
-	}
-	appendbuf(n);
-	*o = *n;
-	//jmpln(o, atoi(n->first->s));
-}
-
-// remember to call clrtobot after this so screen doesn't garbage up
-void pipebuf(buf *b, char *cmd) {
+// remember to call clrtobot after this function so screen doesn't garbage up
+// WHEN IN DOUBT BRUTE FORCE! Copy the entire stinkin' file to a new buf for now.
+buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *o, buf *n, FILE *f)) {
 	line *l = b->first;
 
 	int p[2]; // first pipe
 	int pp[2]; // second pipe
 	FILE *f;
-	char buf[MAXLINE];
 
 	pipe(p);
 	pipe(pp);
@@ -815,11 +806,8 @@ void pipebuf(buf *b, char *cmd) {
 			close(p[1]);
 
 			f = fdopen(pp[0], "r"); // it's easier to fgets
-			while(fgets(buf, MAXLINE, f) > 0) {
-				buf[strlen(buf) - 1] = '\0'; // chop off new line
-				insln(b, b->cur, buf);
-			}
-			break;
+			buf *n = newbuf();
+			return fun(b, n, f);
 	}
 }
 
