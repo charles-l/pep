@@ -770,30 +770,47 @@ void locationpipe(buf *o, buf *n) {
 }
 
 void buf_pipe(buf *b) {
-	// UGHGGG figure this out
 	line *l = b->first;
-	int p[2];
-	int buf[MAXLINE];
+
+	int p[2]; // first pipe
+	int pp[2]; // second pipe
+	char buf[MAXLINE];
+
 	pipe(p);
+	pipe(pp);
+
 	switch(fork()) {
 		case -1:
 			// TODO: use better error management
 			perror("fork");
 			break;
 		case 0:
-			close(p[0]);
-			dup2(1, p[1]);
-			FILE *f = popen("tr a b > x", "w");
-			do {
-				fwrite(l->s, sizeof(char), strlen(l->s), f);
-			} while (l = l->n);
-			fclose(f);
-			close(p[1]);
+			switch(fork()) {
+				case -1:
+					perror("fork");
+					break;
+				case 0:
+					close(pp[0]);
+					close(pp[1]);
+					close(p[0]);
+					do {
+						write(p[1], l->s, strlen(l->s));
+					} while (l = l->n);
+				default:
+					close(p[1]);
+					close(pp[0]);
+					dup2(p[0], STDIN_FILENO);
+					dup2(pp[1], STDOUT_FILENO);
+					execl("/bin/sh", "sh", "-c", "tr a b", NULL);
+			}
 		default:
-			close(p[1]);
-			//dup(p[0]);
-			//while(read(0, ))
+			close(pp[1]);
 			close(p[0]);
+			close(p[1]);
+			while(read(pp[0], buf, MAXLINE) > 0) {
+				insln(b, b->cur, buf);
+			}
+			close(pp[0]);
 			break;
 	}
 }
