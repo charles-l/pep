@@ -760,7 +760,8 @@ buf *p_insert(buf *o, buf *n, FILE *f) {
 		CHOPN(buf);
 		insln(o, o->cur, buf);
 	}
-	//freebuf(n); // delete the new buf since we don't need it
+	freebuf(n); // delete the new buf since we don't need it
+	clrtobot();
 	return NULL;
 }
 
@@ -811,8 +812,7 @@ buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *o, buf *n, FILE *f)) {
 
 			f = fdopen(pp[0], "r"); // it's easier to fgets
 			buf *n = newbuf();
-			freebuf(n);
-			return fun(b, b, f);
+			return fun(b, n, f);
 	}
 }
 
