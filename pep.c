@@ -93,7 +93,7 @@ int e_undo(buf *b, line *start, line *end, int s, int e);
 void replacepipe(buf *o, buf *n);
 void locationpipe(buf *o, buf *n);
 
-void buf_pipe(buf *b);
+void pipebuf(buf *b, char *cmd);
 void drawnstr(char *s, int n);
 void drawstr(char *s);
 void writefilebuf(buf *b, const char *fname);
@@ -739,7 +739,7 @@ void cmdmode(buf *b) {
 				promptcmd(b);
 				break;
 			case '|':
-				buf_pipe(b);
+				pipebuf(b, "tr a b");
 				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
@@ -769,11 +769,13 @@ void locationpipe(buf *o, buf *n) {
 	//jmpln(o, atoi(n->first->s));
 }
 
-void buf_pipe(buf *b) {
+// remember to call clrtobot after this so screen doesn't garbage up
+void pipebuf(buf *b, char *cmd) {
 	line *l = b->first;
 
 	int p[2]; // first pipe
 	int pp[2]; // second pipe
+	FILE *f;
 	char buf[MAXLINE];
 
 	pipe(p);
@@ -795,22 +797,28 @@ void buf_pipe(buf *b) {
 					close(p[0]);
 					do {
 						write(p[1], l->s, strlen(l->s));
+						write(p[1], "\n", 1);
 					} while (l = l->n);
+					write(p[1], "\0", 1); // TODO: find if this is actually needed
+					exit(0); // end child process
 				default:
 					close(p[1]);
 					close(pp[0]);
 					dup2(p[0], STDIN_FILENO);
 					dup2(pp[1], STDOUT_FILENO);
-					execl("/bin/sh", "sh", "-c", "tr a b", NULL);
+					execl("/bin/sh", "sh", "-c", cmd, NULL);
+					exit(0); // end child process (if it gets here)
 			}
 		default:
 			close(pp[1]);
 			close(p[0]);
 			close(p[1]);
-			while(read(pp[0], buf, MAXLINE) > 0) {
+
+			f = fdopen(pp[0], "r"); // it's easier to fgets
+			while(fgets(buf, MAXLINE, f) > 0) {
+				buf[strlen(buf) - 1] = '\0'; // chop off new line
 				insln(b, b->cur, buf);
 			}
-			close(pp[0]);
 			break;
 	}
 }
