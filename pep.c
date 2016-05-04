@@ -618,7 +618,13 @@ void promptcmd(buf *b) { // TODO: refactor
 	if(com[0] == 'q') {
 		quit(b);
 	} else if(com[0] == 'w') {
-		writefilebuf(b, b->filename);
+		if(strlen(com) <= 2)
+			writefilebuf(b, b->filename);
+		else {
+			char *n = com;
+			while(isspace((++n)[0]));
+			writefilebuf(b, n);
+		}
 		char msg[256];
 		sprintf(msg, "wrote file to %s", b->filename);
 		showmsg(msg);
