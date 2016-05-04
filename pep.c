@@ -96,6 +96,7 @@ int e_undo(buf *b, line *start, line *end, int s, int e);
 buf *pipebuf(buf *b, char *cmd, buf *(*fun)(buf *b, FILE *f));
 buf *p_insert(buf *b, FILE *f);
 buf *p_replace(buf *b, FILE *f);
+buf *p_hiddenbuf(buf *b, FILE *f);
 
 void drawnstr(char *s, int n);
 void drawstr(char *s);
@@ -601,33 +602,29 @@ void showmsg(char *s) { // display a message in the prompt box
 	wredrawln(win, LINES - 1, 1);
 }
 
-void promptcmd(buf *b) { // TODO: refactor
-	char com[COMMAND_LEN];
-
-	showmsg(":"); // pop prompt
-
+char *readprompt(char *prompt) {
+	char *r = malloc(COMMAND_LEN);
+	showmsg(prompt);
 	echo();
-	scrollok(win, 0);
-	getnstr(com, COMMAND_LEN);
+	getnstr(r, COMMAND_LEN);
 	scrollok(win, 1);
 	noecho();
+	return r;
+}
+
+void promptcmd(buf *b) { // TODO: refactor
+	char *com = readprompt(":");
 
 	if(com[0] == 'q') {
 		quit(b);
-	}
-	if(com[0] == 'w') {
+	} else if(com[0] == 'w') {
 		writefilebuf(b, b->filename);
-	}
-	if(com[0] == '|') {
-		char *pc = strdup(com + 1);
-		pipebuf(b, pc, p_insert);
-	}
-	if(com[0] == '!') {
-		char *pc = strdup(com + 1);
-		pipebuf(b, pc, p_replace);
+		char msg[256];
+		sprintf(msg, "wrote file to %s", b->filename);
+		showmsg(msg);
 	}
 
-	showmsg(com); // TODO: replace with command call
+	free(com);
 }
 
 //// INPUT HANDLERS / DRAWS ////
@@ -677,11 +674,11 @@ int do_motion(buf *b, char c) {// motion is handled here.
 }
 
 void cmdmode(buf *b) {
-	char c; 	// character from getch
-	line *s, *e;	// start, end of motion
-	int ss, ee, d;	// start, end offest, and direction
-	char *command[] = {"tr", "a", "b", NULL};
-	char *search_command[] = {"sed", "-n", "/hi/=", (char *) b->filename, NULL};
+	char c; 		// character from getch
+	line *s, *e;		// start, end of motion
+	int ss, ee, d;		// start, end offest, and direction
+	char *i;		// command input string
+	char com[COMMAND_LEN];	// command string
 	while(1) {
 		drawbuf(b);
 		switch(c = getch()) {
@@ -752,6 +749,28 @@ void cmdmode(buf *b) {
 			case ':':
 				promptcmd(b);
 				break;
+			case '|':
+				i = readprompt("|");
+				pipebuf(b, i, p_insert);
+				clrtobot();
+				free(i);
+				break;
+			case '!':
+				i = readprompt("!");
+				pipebuf(b, i, p_replace);
+				clear();
+				free(i);
+				break;
+			case '/':
+				i = readprompt("/");
+				sprintf(com, "sed -n '/%s/='", i);
+				free(i);
+				buf *r = pipebuf(b, com, p_hiddenbuf);
+				delln(r, r->first); // remove blank newline
+				// TODO: do something with it (jump to line maybe?)
+				clear();
+				freebuf(r);
+				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
 					break;
@@ -781,6 +800,16 @@ buf *p_replace(buf *b, FILE *f) {
 	*b = *n;
 	clear();
 	return NULL;
+}
+
+buf *p_hiddenbuf(buf *b, FILE *f) { // capture output of command in new buffer
+	char lnbuf[MAXLINE];
+	buf *n = newbuf();
+	while(fgets(lnbuf, MAXLINE, f) > 0) {
+		CHOPN(lnbuf);
+		insln(n, n->first, lnbuf);
+	}
+	return n;
 }
 
 // remember to call clrtobot after this function so screen doesn't garbage up
