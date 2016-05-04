@@ -618,6 +618,10 @@ void promptcmd(buf *b) { // TODO: refactor
 	if(com[0] == 'w') {
 		writefilebuf(b, b->filename);
 	}
+	if(com[0] == '|') {
+		char *pc = strdup(com + 1);
+		pipebuf(b, pc, p_insert);
+	}
 
 	showmsg(com); // TODO: replace with command call
 }
@@ -743,9 +747,6 @@ void cmdmode(buf *b) {
 				break;
 			case ':':
 				promptcmd(b);
-				break;
-			case '|':
-				pipebuf(b, "tr a b", p_insert);
 				break;
 			default:
 				if(do_motion(b, c)) // assume it's a motion
