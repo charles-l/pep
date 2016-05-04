@@ -93,9 +93,9 @@ int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
 
-buf *pipebuf(buf *b, char *cmd, buf *(*fun)(buf *o, buf *n, FILE *f));
-buf *p_insert(buf *o, buf *n, FILE *f);
-buf *p_replace(buf *o, buf *n, FILE *f);
+buf *pipebuf(buf *b, char *cmd, buf *(*fun)(buf *b, FILE *f));
+buf *p_insert(buf *b, FILE *f);
+buf *p_replace(buf *b, FILE *f);
 
 void drawnstr(char *s, int n);
 void drawstr(char *s);
@@ -622,6 +622,10 @@ void promptcmd(buf *b) { // TODO: refactor
 		char *pc = strdup(com + 1);
 		pipebuf(b, pc, p_insert);
 	}
+	if(com[0] == '!') {
+		char *pc = strdup(com + 1);
+		pipebuf(b, pc, p_replace);
+	}
 
 	showmsg(com); // TODO: replace with command call
 }
@@ -755,20 +759,33 @@ void cmdmode(buf *b) {
 	}
 }
 
-buf *p_insert(buf *o, buf *n, FILE *f) {
-	char buf[MAXLINE];
-	while(fgets(buf, MAXLINE, f) > 0) {
-		CHOPN(buf);
-		insln(o, o->cur, buf);
+buf *p_insert(buf *b, FILE *f) {
+	char lnbuf[MAXLINE];
+	while(fgets(lnbuf, MAXLINE, f) > 0) {
+		CHOPN(lnbuf);
+		insln(b, b->cur, lnbuf);
 	}
-	freebuf(n); // delete the new buf since we don't need it
 	clrtobot();
+	return NULL;
+}
+
+buf *p_replace(buf *b, FILE *f) {
+	char lnbuf[MAXLINE];
+	buf *n = newbuf();
+	while(fgets(lnbuf, MAXLINE, f) > 0) {
+		CHOPN(lnbuf);
+		delln(b, b->first);
+		insln(n, n->first, lnbuf);
+	}
+	freebuf(b);
+	*b = *n;
+	clear();
 	return NULL;
 }
 
 // remember to call clrtobot after this function so screen doesn't garbage up
 // WHEN IN DOUBT BRUTE FORCE! Copy the entire stinkin' file to a new buf for now.
-buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *o, buf *n, FILE *f)) {
+buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *b, FILE *f)) {
 	line *l = b->first;
 
 	int p[2];  // first pipe
@@ -780,7 +797,7 @@ buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *o, buf *n, FILE *f)) {
 
 	switch(fork()) {
 		case -1:
-			// TODO: use better error management
+			// TODO: use better error handling
 			perror("fork");
 			break;
 		case 0:
@@ -812,8 +829,7 @@ buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *o, buf *n, FILE *f)) {
 			close(p[1]);
 
 			f = fdopen(pp[0], "r"); // it's easier to fgets
-			buf *n = newbuf();
-			return fun(b, n, f);
+			return fun(b, f);
 	}
 }
 
