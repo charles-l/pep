@@ -46,7 +46,7 @@ typedef struct string {			// auto growing string (only use when necessary)
 	char *ss;			// content
 	size_t s;			// size
 	size_t l;			// length
-} string;				// TODO: perhaps throw into its own file?
+} string;
 
 typedef struct {
 	line *first;	  		// first line in file
@@ -65,7 +65,7 @@ char curch(buf *b);			// current character
 char nextch(buf *b);			// next character
 char prevch(buf *b);			// previous character
 int eos(char *c);			// distance to end of string
-int getcurln(buf *b);			// get visual y position of cursor
+int getcurlnn(buf *b);			// get visual y position of cursor
 int getvlnpos(char *s, int pos);	// get visual x cursor position
 int swap(line **s, line **e);
 line *lncpy(line *start, line *end);
@@ -84,6 +84,7 @@ int m_prevch(buf *b);
 int m_eol(buf *b);
 int m_bol(buf *b);
 int m_jump(buf *b, line *start);
+int m_jumpn(buf *b, int ln);
 int m_prevln(buf *b);
 int m_nextln(buf *b);
 
@@ -132,10 +133,10 @@ line *dupln(line *l) {
 	return r;
 }
 
-int delln(buf *b, line *l) { // TODO: refactor
+int delln(buf *b, line *l) {
 	if(!l || b->first == b->last) return 0;
 	if(l == b->first) b->first = b->first->n;
-	if(l == b->last) b->last = b->last->p;
+	if(l == b->last)  b->last = b->last->p;
 	if(l->p) l->p->n = l->n ? l->n : NULL;
 	if(l->n) l->n->p = l->p ? l->p : NULL;
 
@@ -168,7 +169,7 @@ int eos(char *c) {
 	return i;
 }
 
-int getcurln(buf *b) {
+int getcurlnn(buf *b) {
 	int i = 0;
 	for(line *l = b->scroll; l != b->cur; l = l->n, i++);
 	return i;
@@ -332,6 +333,16 @@ int m_jump(buf *b, line *start) { // ignores end
 	b->cur = start;
 	b->scroll = start;
 	clear();
+	return 1; // TODO: this isn't always forward
+}
+
+int m_jumpn(buf *b, int ln) {
+	line *l = b->first;
+	for(int i = 0; (l = l->n) && (i != ln); i++);
+	b->cur = l;
+	b->scroll = l;
+	clear();
+	return 1;
 }
 
 int m_smartbol(buf *b) {
@@ -359,7 +370,7 @@ int m_nextln(buf *b) {
 	if(b->cur->n) {
 		int oldpos = b->linepos;
 		b->cur = b->cur->n;
-		if(getcurln(b) >= LINES - 1) {
+		if(getcurlnn(b) >= LINES - 1) {
 			b->scroll = b->scroll->n;
 			scrl(1); // so is this one
 		}
@@ -377,7 +388,7 @@ int m_boscr(buf *b) {
 }
 
 int m_eoscr(buf *b) {
-	for(int i = getcurln(b); i < LINES - 2 && m_nextln(b); i++);
+	for(int i = getcurlnn(b); i < LINES - 2 && m_nextln(b); i++);
 }
 
 int m_nextscr(buf *b) {
@@ -433,7 +444,8 @@ char *insrtstr(char *s, char *i, int p) {
 	return r;
 }
 
-int e_insert(buf *b) { // TODO: refactor
+int e_insert(buf *b) {
+	drawbuf(b);
 	pushundo(b, b->cur, b->cur, b->linepos, CHANGED);
 	insmode(b);
 	return 0;
@@ -474,7 +486,7 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 
 		line *l;
 		if(b->undos->t == CHANGED) {
-			*(b->undos->p) = *(b->undos->l); // TODO: maybe memcpy?
+			*(b->undos->p) = *(b->undos->l);
 			l = b->undos->p;
 		} else if(b->undos->t == DELETED) {
 			l = insln(b, b->undos->p->p, b->undos->l->s);
@@ -566,6 +578,7 @@ void drawstr(char *s) {
 }
 
 void drawbuf(buf *b) {
+	clear();
 	line *l = b->scroll;
 	int i = 0;
 	for(; l != NULL; l = l->n, i++) {
@@ -578,7 +591,7 @@ void drawbuf(buf *b) {
 		for(; i < LINES - 2; i++)
 			mvaddch(i, 0, '~');
 	}
-	move(getcurln(b), getvlnpos(b->cur->s, b->linepos));
+	move(getcurlnn(b), getvlnpos(b->cur->s, b->linepos));
 	refresh();
 }
 
@@ -595,11 +608,17 @@ void mvmsg() { // move to the message box
 	move(LINES - 1, 0);
 }
 
-void showmsg(char *s) { // display a message in the prompt box
+void showmsg(char *s) { // display a message in the prompt box (LOLZ THIS ISNT A SEPARATE WINDOW HAHAHA)
 	mvmsg();
 	clrtoeol();
 	addstr(s);
 	wredrawln(win, LINES - 1, 1);
+}
+
+#define showmsgf(s, ...) { \
+	char msg[256]; \
+	sprintf(msg, s, __VA_ARGS__); \
+	showmsg(msg); \
 }
 
 char *readprompt(char *prompt) {
@@ -607,7 +626,6 @@ char *readprompt(char *prompt) {
 	showmsg(prompt);
 	echo();
 	getnstr(r, COMMAND_LEN);
-	scrollok(win, 1);
 	noecho();
 	return r;
 }
@@ -618,16 +636,19 @@ void promptcmd(buf *b) { // TODO: refactor
 	if(com[0] == 'q') {
 		quit(b);
 	} else if(com[0] == 'w') {
-		if(strlen(com) <= 2)
+		if(strlen(com) <= 2) {
+			if(!b->filename) {
+				showmsg("no filename specified!");
+				getch();
+				return;
+			}
 			writefilebuf(b, b->filename);
-		else {
+		} else {
 			char *n = com;
 			while(isspace((++n)[0]));
+			b->filename = n;
 			writefilebuf(b, n);
 		}
-		char msg[256];
-		sprintf(msg, "wrote file to %s", b->filename);
-		showmsg(msg);
 	}
 
 	free(com);
@@ -706,17 +727,14 @@ void cmdmode(buf *b) {
 				break;
 			case 'I':
 				m_bol(b);
-				drawbuf(b);
 				e_insert(b);
 				break;
 			case 'a':
 				m_nextch(b);
-				drawbuf(b);
 				e_insert(b);
 				break;
 			case 'A':
 				m_eol(b);
-				drawbuf(b);
 				e_insert(b);
 				break;
 			case 'x':
@@ -736,14 +754,12 @@ void cmdmode(buf *b) {
 			case 'o':
 				e_new_line(b);
 				m_bol(b);
-				drawbuf(b); // force redraw
 				e_insert(b);
 				break;
 			case 'O':
 				m_prevln(b);
 				m_bol(b);
 				e_new_line(b);
-				drawbuf(b);
 				e_insert(b);
 				break;
 			case 'H':
@@ -773,11 +789,13 @@ void cmdmode(buf *b) {
 				free(i);
 				buf *r = pipebuf(b, com, p_hiddenbuf);
 				delln(r, r->first); // remove blank newline
-				// TODO: do something with it (jump to line maybe?)
+				insln(b, b->last, r->first->s);
+				m_jumpn(b, atoi(r->first->s));
 				clear();
 				freebuf(r);
 				break;
 			default:
+				// TODO: properly handle numbers
 				if(do_motion(b, c)) // assume it's a motion
 					break;
 		}
@@ -886,7 +904,7 @@ buf *newbuf(void) {
 	b->scroll = b->cur;
 	b->linepos = 0;
 	b->undos = NULL;
-	b->filename = "~";
+	b->filename = NULL;
 	return b;
 }
 
@@ -899,42 +917,33 @@ void appendbuf(buf *b) {
 
 // I hate this macro. It's a hcak in place to prevent
 // duplicated stuff in the insert function
-#define END_INSERT() \
-	n = insertstr(b->cur->s, r->ss, b->linepos); \
-	free(b->cur->s);				   \
-	b->cur->s = n;					   \
-	b->linepos = b->linepos + strlen(r->ss) - 1;	   \
+#define END_INSERT \
+	char *n = insertstr(b->cur->s, r->ss, b->linepos);	\
+	free(b->cur->s);		 		\
+	b->cur->s = n;					\
+	b->linepos = b->linepos + strlen(r->ss) - 1;	\
 	freestr(r);
 
-void insmode(buf *b) { // TODO: refactor (and cleanup)
+void insmode(buf *b) {
 	string *r = newstr("", 128); // auto grow string
 	char c;
-	char *n;
-	int m = 0;
 	while((c = getch()) != KEY_ESC) {
-		int l = getcurln(b);
-		switch(c) {
-			case KEY_BS:
-				if(!remch(r)) {
-					m_prevln(b);
-					m = strlen(b->cur->s);
-					e_join(b, NULL, NULL, 0, 0);
-					clear();
-					drawbuf(b);
-					l--;
-					b->linepos = m;
-				}
-				break;
-			case '\n':
-				END_INSERT();
-				e_new_line(b);
-				m_bol(b);
-				drawbuf(b);
-				return insmode(b);
-			default:
-				appendch(r, c);
-				break;
-		}
+		int l = getcurlnn(b);
+		if(c == KEY_BS && !remch(r)) {
+			m_prevln(b);
+			int m = strlen(b->cur->s);
+			e_join(b, NULL, NULL, 0, 0);
+			drawbuf(b);
+			l--;
+			b->linepos = m;
+		} else if (c == '\n') {
+			END_INSERT;
+			e_new_line(b);
+			m_bol(b);
+			drawbuf(b);
+			return insmode(b);
+		} else
+			appendch(r, c);
 		move(l, 0);
 		clrtoeol();
 		drawnstr(b->cur->s, b->linepos);
@@ -943,7 +952,7 @@ void insmode(buf *b) { // TODO: refactor (and cleanup)
 		move(l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r->ss, r->l));
 		refresh();
 	}
-	END_INSERT();
+	END_INSERT;
 }
 
 void quit(buf *b) {
