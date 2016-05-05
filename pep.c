@@ -493,23 +493,23 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 //// BUFFER FUNCTIONS ////
 
 buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
-	buf *b = malloc(sizeof(buf));
+	buf *b = newbuf();
 	char s[MAXLINE];
-	if(f == NULL) ERROR("invalid file");
-	for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
-		line *l = malloc(sizeof(line));
-		l->s = strndup(s, strlen(s) - 1); // strip off '\n'
-		if(i == 0) {
-			l->n = NULL;
-			l->p = NULL;
-			b->first = l;
-		} else {
-			l->n = NULL;
-			l->p = b->last;
-			b->last->n = l;
+	if(f != NULL)
+		for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
+			line *l = malloc(sizeof(line));
+			l->s = strndup(s, strlen(s) - 1); // strip off '\n'
+			if(i == 0) {
+				l->n = NULL;
+				l->p = NULL;
+				b->first = l;
+			} else {
+				l->n = NULL;
+				l->p = b->last;
+				b->last->n = l;
+			}
+			b->last = l;
 		}
-		b->last = l;
-	}
 	b->cur = b->first;
 	b->scroll = b->first;
 	b->filename = fname;
@@ -520,7 +520,7 @@ buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
 buf *loadfilebuf(const char *fname) {
 	FILE *f = fopen(fname, "r");
 	buf *b = readbuf(f, fname);
-	fclose(f);
+	if (f) fclose(f);
 	return b;
 }
 
