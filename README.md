@@ -8,7 +8,8 @@ A minimal orthogonal Vim-like clone.
     * Undo (partially implemented)
     * Read file
     * Write file
-    * Basic piping out (you need to modify code for now)
+    * Basic piping out (with `|` to read from pipe or `!` to filter the entire buffer through command)
+    * Searching (by piping out to `grep`)
 * ~800 SLOC (goal is to stay under 2K - less if possible)
 
 ## Design
