@@ -819,6 +819,7 @@ void cmdmode(buf *b) {
 				i = readprompt("/");
 				sprintf(com, "sed -n '/%s/='", i);
 				free(i);
+				if(search) freebuf(search); // delete previous search
 				search = pipebuf(b, com, p_hiddenbuf);
 				searchnext(b);
 				delln(search, search->first); // remove blank newline
