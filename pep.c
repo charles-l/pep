@@ -108,9 +108,11 @@ buf *loadfilebuf(const char *fname);
 buf *readbuf(FILE *f, const char *fname);
 void freebuf(buf *b);
 void drawbuf(buf *b);
-void appendbuf(buf *b);
-void filestatus(buf *b);
 
+int searchnext(buf *b);
+int searchprev(buf *b);
+
+void filestatus(buf *b);
 void mvmsg();
 void showmsg(char *s);
 void promptcmd(buf *b);
@@ -121,7 +123,7 @@ void quit(buf *b);
 
 // globals
 WINDOW *win;
-buf *bufs[MAXBUF];
+buf *search = NULL;
 
 int is_eolch(char c) {
 	return c == '\0' || c == '\n';
@@ -595,6 +597,36 @@ void drawbuf(buf *b) {
 	refresh();
 }
 
+// TODO: move, since they're technically motions (rename and fix, etc)
+// TODO: also through search code in do_motion
+int searchnext(buf *b) {
+	if(!search) return 0;
+	if(search->cur->n)
+		search->cur = search->cur->n;
+	else if(search->cur == search->last)
+		search->cur = search->first;
+
+	if(search->cur) {
+		m_jumpn(b, atoi(search->cur->s));
+		return 1;
+	}
+	return 0;
+}
+
+int searchprev(buf *b) {
+	if(!search) return 0;
+	if(search->cur->p)
+		search->cur = search->cur->p;
+	else if(search->cur == search->first)
+		search->cur = search->last;
+
+	if(search->cur) {
+		m_jumpn(b, atoi(search->cur->s));
+		return 1;
+	}
+	return 0;
+}
+
 //// PROMPT ////
 
 void filestatus(buf *b) {
@@ -787,11 +819,15 @@ void cmdmode(buf *b) {
 				i = readprompt("/");
 				sprintf(com, "sed -n '/%s/='", i);
 				free(i);
-				buf *r = pipebuf(b, com, p_hiddenbuf);
-				delln(r, r->first); // remove blank newline
-				m_jumpn(b, atoi(r->first->s));
-				clear();
-				freebuf(r);
+				search = pipebuf(b, com, p_hiddenbuf);
+				searchnext(b);
+				delln(search, search->first); // remove blank newline
+				break;
+			case 'n':
+				searchnext(b);
+				break;
+			case 'N':
+				searchprev(b);
 				break;
 			default:
 				// TODO: properly handle numbers
@@ -907,13 +943,6 @@ buf *newbuf(void) {
 	return b;
 }
 
-void appendbuf(buf *b) {
-	int i = 0;
-	while(bufs[i] != NULL) i++;
-	bufs[i] = b;
-	if(++i > MAXBUF) ERROR("cannot add new buf");
-}
-
 // I hate this macro. It's a hcak in place to prevent
 // duplicated stuff in the insert function
 #define END_INSERT \
@@ -963,14 +992,12 @@ void quit(buf *b) {
 }
 
 int main(int argc, char **argv) {
-	bufs[0] = NULL;
 	if((win = initscr()) == NULL) QERROR("error initializing ncurses");
 
 	noecho();
 	scrollok(win, 1);
 
 	buf *b = argc < 2 ? newbuf() : loadfilebuf(argv[1]);
-	appendbuf(b);
 
 	cmdmode(b);
 
