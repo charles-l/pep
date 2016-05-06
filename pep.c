@@ -338,7 +338,7 @@ int m_jump(buf *b, line *start) { // ignores end
 
 int m_jumpn(buf *b, int ln) {
 	line *l = b->first;
-	for(int i = 0; (l = l->n) && (i != ln); i++);
+	for(int i = 1; (l = l->n) && (i < ln - 1); i++);
 	b->cur = l;
 	b->scroll = l;
 	clear();
@@ -789,7 +789,6 @@ void cmdmode(buf *b) {
 				free(i);
 				buf *r = pipebuf(b, com, p_hiddenbuf);
 				delln(r, r->first); // remove blank newline
-				insln(b, b->last, r->first->s);
 				m_jumpn(b, atoi(r->first->s));
 				clear();
 				freebuf(r);
@@ -831,7 +830,7 @@ buf *p_hiddenbuf(buf *b, FILE *f) { // capture output of command in new buffer
 	buf *n = newbuf();
 	while(fgets(lnbuf, MAXLINE, f) > 0) {
 		CHOPN(lnbuf);
-		insln(n, n->first, lnbuf);
+		insln(n, n->last, lnbuf);
 	}
 	return n;
 }
