@@ -1,0 +1,11 @@
+* Make insert mode work
+    * fix newline in middle of line
+    * fix delete in middle of line (on text that wasn't in current insert)
+* add line numbers
+* use states
+* start eating your dogfood boi
+* make undo work
+    * handle multi-line deletion
+* syntax highlighting
+* cleanup mem leaks
+* refactor
