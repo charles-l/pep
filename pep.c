@@ -16,6 +16,7 @@
 #define TABSTOP 8     			// width of tab
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256 		// max command length
+#define SEARCH_COMMAND "grep -aon '%s'"
 
 #define QERROR(x) { fprintf(stderr, "pep: %s\n", x); exit(1); }
 #define ERROR(x) { fprintf(stderr, "pep: %s\n", x); quit(b); }
@@ -68,6 +69,7 @@ int eos(char *c);			// distance to end of string
 int getcurlnn(buf *b);			// get visual y position of cursor
 int getvlnpos(char *s, int pos);	// get visual x cursor position
 int swap(line **s, line **e);
+char *findsubstr(char *s, char *f);
 line *lncpy(line *start, line *end);
 line *insln(buf *b, line *p, char *s);  // add a new line after p, with content s (s is strdupped)
 void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
@@ -203,6 +205,18 @@ int swap(line **s, line **e) {
 	*e = *s;
 	*s = t;
 	return 0;
+}
+
+char *findsubstr(char *s, char *sub) {
+	size_t subn = strlen(sub);
+	size_t sn = strlen(s);
+	if(subn > sn) return NULL;
+	for(int i = 0; s[i] == sub[i]; i++) {
+		putchar(i);
+		if(s[i + 1] == '\0') return NULL; // no match in string
+		if(sub[i + 1] == '\0') return s; // matched til end of substr
+	}
+	return findsubstr(s + 1, sub);
 }
 
 line *lncpy(line *start, line *end) {
@@ -608,6 +622,9 @@ int searchnext(buf *b) {
 
 	if(search->cur) {
 		m_jumpn(b, atoi(search->cur->s));
+		char *m = search->cur->s + 1;
+		while(m[-1] != ':') m++; // hehehe look ma i'm clever
+		b->linepos = findsubstr(b->cur->s, m) - b->cur->s;
 		return 1;
 	}
 	return 0;
@@ -815,9 +832,9 @@ void cmdmode(buf *b) {
 				clear();
 				free(i);
 				break;
-			case '/':
+			case '/': // TODO: jump to match on line
 				i = readprompt("/");
-				sprintf(com, "sed -n '/%s/='", i);
+				sprintf(com, SEARCH_COMMAND, i);
 				free(i);
 				if(search) freebuf(search); // delete previous search
 				search = pipebuf(b, com, p_hiddenbuf);
@@ -986,6 +1003,7 @@ void insmode(buf *b) {
 
 void quit(buf *b) {
 	freebuf(b);
+	if(search) freebuf(search);
 	endwin();
 	delwin(win);
 	refresh();
