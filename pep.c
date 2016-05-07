@@ -11,8 +11,6 @@
 #include <sys/wait.h>
 
 // configs
-#define MAXLINE 1024  			// maximum possible line length
-#define MAXBUF  16			// maximum possible number of open buffers
 #define TABSTOP 8     			// width of tab
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256			// max command length
@@ -522,9 +520,9 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 
 buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
 	buf *b = newbuf();
-	char s[MAXLINE];
+	char s[LINE_MAX];
 	if(f != NULL)
-		for(int i = 0; fgets(s, MAXLINE, f) != NULL; i++) {
+		for(int i = 0; fgets(s, LINE_MAX, f) != NULL; i++) {
 			line *l = malloc(sizeof(line));
 			l->s = strndup(s, strlen(s) - 1); // strip off '\n'
 			if(i == 0) {
@@ -856,8 +854,8 @@ void cmdmode(buf *b) {
 }
 
 buf *p_insert(buf *b, FILE *f) {
-	char lnbuf[MAXLINE];
-	while(fgets(lnbuf, MAXLINE, f) > 0) {
+	char lnbuf[LINE_MAX];
+	while(fgets(lnbuf, LINE_MAX, f) > 0) {
 		CHOPN(lnbuf);
 		insln(b, b->cur, lnbuf);
 	}
@@ -866,9 +864,9 @@ buf *p_insert(buf *b, FILE *f) {
 }
 
 buf *p_replace(buf *b, FILE *f) {
-	char lnbuf[MAXLINE];
+	char lnbuf[LINE_MAX];
 	buf *n = newbuf();
-	while(fgets(lnbuf, MAXLINE, f) > 0) {
+	while(fgets(lnbuf, LINE_MAX, f) > 0) {
 		CHOPN(lnbuf);
 		delln(b, b->first);
 		insln(n, n->first, lnbuf);
@@ -880,9 +878,9 @@ buf *p_replace(buf *b, FILE *f) {
 }
 
 buf *p_hiddenbuf(buf *b, FILE *f) { // capture output of command in new buffer
-	char lnbuf[MAXLINE];
+	char lnbuf[LINE_MAX];
 	buf *n = newbuf();
-	while(fgets(lnbuf, MAXLINE, f) > 0) {
+	while(fgets(lnbuf, LINE_MAX, f) > 0) {
 		CHOPN(lnbuf);
 		insln(n, n->last, lnbuf);
 	}
