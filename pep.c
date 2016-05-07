@@ -15,12 +15,12 @@
 #define MAXBUF  16			// maximum possible number of open buffers
 #define TABSTOP 8     			// width of tab
 #define STATUS_LENGTH 256		// max length of status text
-#define COMMAND_LEN 256 		// max command length
+#define COMMAND_LEN 256			// max command length
 #define SEARCH_COMMAND "grep -aon '%s'"
 
 #define QERROR(x) { fprintf(stderr, "pep: %s\n", x); exit(1); }
 #define ERROR(x) { fprintf(stderr, "pep: %s\n", x); quit(b); }
-#define KEY_ESC 0x1B    		// escape keycode
+#define KEY_ESC 0x1B			// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6
 #define KEY_CB 2
