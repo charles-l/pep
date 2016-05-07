@@ -869,8 +869,9 @@ buf *p_replace(buf *b, FILE *f) {
 	while(fgets(lnbuf, LINE_MAX, f) > 0) {
 		CHOPN(lnbuf);
 		delln(b, b->first);
-		insln(n, n->first, lnbuf);
+		insln(n, n->last, lnbuf);
 	}
+	delln(n, n->first); // remove empty line
 	freebuf(b);
 	*b = *n;
 	clear();
