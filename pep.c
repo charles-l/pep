@@ -560,6 +560,7 @@ void writefilebuf(buf *b, const char *fname) {
 }
 
 void freebuf(buf *b) {
+	if(!b) return; // don't try to free NULL
 	while(b->first != NULL) {
 		free(b->first->s);
 		free(b->first);
@@ -830,14 +831,14 @@ void cmdmode(buf *b) {
 				clear();
 				free(i);
 				break;
-			case '/': // TODO: jump to match on line
+			case '/':
 				i = readprompt("/");
 				sprintf(com, SEARCH_COMMAND, i);
 				free(i);
-				if(search) freebuf(search); // delete previous search
+				freebuf(search); // delete previous search
 				search = pipebuf(b, com, p_hiddenbuf);
-				searchnext(b);
 				delln(search, search->first); // remove blank newline
+				searchnext(b);
 				break;
 			case 'n':
 				searchnext(b);
@@ -1002,7 +1003,7 @@ void insmode(buf *b) {
 
 void quit(buf *b) {
 	freebuf(b);
-	if(search) freebuf(search);
+	freebuf(search);
 	endwin();
 	delwin(win);
 	refresh();
