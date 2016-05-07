@@ -1,6 +1,7 @@
 // vim: sw=8 ts=8
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <ncurses.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -64,6 +65,7 @@ char curch(buf *b);			// current character
 char nextch(buf *b);			// next character
 char prevch(buf *b);			// previous character
 int eos(char *c);			// distance to end of string
+int getlnn(buf *b, line *l);		// get line number of file
 int getcurlnn(buf *b);			// get visual y position of cursor
 int getvlnpos(char *s, int pos);	// get visual x cursor position
 int swap(line **s, line **e);
@@ -99,8 +101,8 @@ buf *p_insert(buf *b, FILE *f);
 buf *p_replace(buf *b, FILE *f);
 buf *p_hiddenbuf(buf *b, FILE *f);
 
-void drawnstr(char *s, int n);
-void drawstr(char *s);
+void drawnstr(WINDOW *w, char *s, int n);
+void drawstr(WINDOW *w, char *s);
 void writefilebuf(buf *b, const char *fname);
 
 buf *newbuf(void);
@@ -123,6 +125,9 @@ void quit(buf *b);
 
 // globals
 WINDOW *win;
+WINDOW *linenum;
+int lnn_width = 5;
+WINDOW *prompt; // TODO: make prompt draw to here
 buf *search = NULL;
 
 int is_eolch(char c) {
@@ -168,6 +173,12 @@ char prevch(buf *b) {
 int eos(char *c) {
 	int i = 0;
 	while(c[0] != '\0') {c++; i++;}
+	return i;
+}
+
+int getlnn(buf *b, line *l) {
+	int i = 1;
+	for(line *t = b->first; t != l; t = t->n, i++);
 	return i;
 }
 
@@ -346,7 +357,6 @@ int m_bol(buf *b) {
 int m_jump(buf *b, line *start) { // ignores end
 	b->cur = start;
 	b->scroll = start;
-	clear();
 	return 1; // TODO: this isn't always forward
 }
 
@@ -355,7 +365,6 @@ int m_jumpn(buf *b, int ln) {
 	for(int i = 1; (l = l->n) && (i < ln - 1); i++);
 	b->cur = l;
 	b->scroll = l;
-	clear();
 	return 1;
 }
 
@@ -370,8 +379,8 @@ int m_prevln(buf *b) {
 		int oldpos = b->linepos;
 		if(b->cur == b->scroll) {
 			b->scroll = b->scroll->p;
-			scrl(-1); // this is a junk call to make sure
-		}			  // scrolling doesn't goof display
+			wscrl(win, -1); // this is a junk call to make sure
+		} // scrolling doesn't goof display
 		b->cur = b->cur->p;
 		if(oldpos > ((int) strlen(b->cur->s) - 2))
 			m_eol(b);
@@ -409,7 +418,6 @@ int m_nextscr(buf *b) {
 	m_eoscr(b);
 	m_nextln(b);
 	b->scroll = b->cur;
-	clear(); // force clear
 	return 1;
 }
 
@@ -417,7 +425,6 @@ int m_prevscr(buf *b) {
 	m_boscr(b);
 	for(int i = 0; i < LINES - 1 && m_prevln(b); i++);
 	m_eoscr(b);
-	clear(); // force clear
 	return -1;
 }
 
@@ -574,40 +581,46 @@ void freebuf(buf *b) {
 	}
 }
 
-void drawnstr(char *s, int n) {
+void drawnstr(WINDOW *w, char *s, int n) {
 	for(int i = 0; s[0] != '\0' && i < n; s++, i++) {
 		switch(s[0]) {
 			case '\t':
 				for(int i = 0; i < TABSTOP; i++)
-					addch(' ');
+					waddch(w, ' ');
 				break;
 			default:
-				addch(s[0]);
+				waddch(w, s[0]);
 				break;
 		}
 	}
 }
 
-void drawstr(char *s) {
-	drawnstr(s, INT_MAX);
+void drawstr(WINDOW *w, char *s) {
+	drawnstr(w, s, INT_MAX);
 }
 
 void drawbuf(buf *b) {
-	clear();
+	char linenumfmt[12];
+	sprintf(linenumfmt, "%%%ii", lnn_width - 1);
+	wclear(win);
+	wclear(linenum);
 	line *l = b->scroll;
 	int i = 0;
+	int lnn = getlnn(b, b->scroll);
 	for(; l != NULL; l = l->n, i++) {
 		if(i > LINES - 2) break;
-		move(i, 0);
-		drawstr(l->s);
+		wmove(win, i, 0);
+		drawstr(win, l->s);
+		mvwprintw(linenum, i, 0, linenumfmt, lnn + i);
 	}
 	if(i < LINES - 2) { // fill empty lines with '~'
-		clrtobot();
+		wclrtobot(win);
 		for(; i < LINES - 2; i++)
-			mvaddch(i, 0, '~');
+			mvwaddch(win, i, 0, '~');
 	}
-	move(getcurlnn(b), getvlnpos(b->cur->s, b->linepos));
-	refresh();
+	wrefresh(linenum);
+	wmove(win, getcurlnn(b), getvlnpos(b->cur->s, b->linepos));
+	wrefresh(win);
 }
 
 // TODO: move, since they're technically motions (rename and fix, etc)
@@ -657,6 +670,7 @@ void mvmsg() { // move to the message box
 }
 
 void showmsg(char *s) { // display a message in the prompt box (LOLZ THIS ISNT A SEPARATE WINDOW HAHAHA)
+	// TODO: use prompt instead
 	mvmsg();
 	clrtoeol();
 	addstr(s);
@@ -704,12 +718,12 @@ void promptcmd(buf *b) { // TODO: refactor
 
 //// INPUT HANDLERS / DRAWS ////
 
-#define EDIT_MOTION(edit, motion) 			\
-ss = b->linepos; s = b->cur; \
-d = motion;		     		 \
-ee = b->linepos; e = b->cur; \
-if(d<0) { 		     		 \
-	swap(&s, &e); 			 \
+#define EDIT_MOTION(edit, motion)\
+ss = b->linepos; s = b->cur;	\
+d = motion;			\
+ee = b->linepos; e = b->cur;	\
+if(d<0) {			\
+	swap(&s, &e);		\
 	if(ss != ee) {ss ^= ee; ee ^= ss; ss ^= ee;} \
 } \
 edit(b, s, e, ss, ee);
@@ -756,9 +770,9 @@ void cmdmode(buf *b) {
 	char com[COMMAND_LEN];	// command string
 	while(1) {
 		drawbuf(b);
-		switch(c = getch()) {
+		switch(c = wgetch(win)) {
 			case 'd':
-				c = getch();
+				c = wgetch(win);
 				if(c == 'd') { // TODO: move somewhere saner
 					// TODO: replace this with a call to e_del
 					pushundo(b, b->cur, b->cur, b->linepos, DELETED);
@@ -828,7 +842,6 @@ void cmdmode(buf *b) {
 			case '!':
 				i = readprompt("!");
 				pipebuf(b, i, p_replace);
-				clear();
 				free(i);
 				break;
 			case '/':
@@ -875,7 +888,6 @@ buf *p_replace(buf *b, FILE *f) {
 	delln(n, n->first); // remove empty line
 	freebuf(b);
 	*b = *n;
-	clear();
 	return NULL;
 }
 
@@ -973,30 +985,28 @@ buf *newbuf(void) {
 void insmode(buf *b) {
 	string *r = newstr("", 128); // auto grow string
 	char c;
-	while((c = getch()) != KEY_ESC) {
+	while((c = wgetch(win)) != KEY_ESC) {
 		int l = getcurlnn(b);
 		if(c == KEY_BS && !remch(r)) {
 			m_prevln(b);
 			int m = strlen(b->cur->s);
 			e_join(b, NULL, NULL, 0, 0);
-			drawbuf(b);
 			l--;
 			b->linepos = m;
 		} else if (c == '\n') {
 			END_INSERT;
 			e_new_line(b);
 			m_bol(b);
-			drawbuf(b);
 			return insmode(b);
 		} else
 			appendch(r, c);
-		move(l, 0);
-		clrtoeol();
-		drawnstr(b->cur->s, b->linepos);
-		drawstr(r->ss);
-		drawstr(b->cur->s + b->linepos);
-		move(l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r->ss, r->l));
-		refresh();
+		wmove(win, l, 0);
+		wclrtoeol(win);
+		drawnstr(win, b->cur->s, b->linepos);
+		drawstr(win, r->ss);
+		drawstr(win, b->cur->s + b->linepos);
+		wmove(win, l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r->ss, r->l));
+		wrefresh(win);
 	}
 	END_INSERT;
 }
@@ -1004,14 +1014,17 @@ void insmode(buf *b) {
 void quit(buf *b) {
 	freebuf(b);
 	freebuf(search);
-	endwin();
 	delwin(win);
-	refresh();
+	delwin(linenum);
+	delwin(prompt);
+	endwin();
 	exit(0);
 }
 
 int main(int argc, char **argv) {
-	if((win = initscr()) == NULL) QERROR("error initializing ncurses");
+	if(initscr() == NULL) QERROR("error initializing ncurses");
+	win = newwin(LINES, COLS - lnn_width, 0, lnn_width);
+	linenum = newwin(LINES, lnn_width, 0, 0);
 
 	noecho();
 	scrollok(win, 1);
