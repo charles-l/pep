@@ -619,7 +619,7 @@ int searchnext(buf *b) {
 	else if(search->cur == search->last)
 		search->cur = search->first;
 
-	if(search->cur) {
+	if(search->cur && (strlen(search->cur->s) > 0)) {
 		m_jumpn(b, atoi(search->cur->s));
 		char *m = search->cur->s + 1;
 		while(m[-1] != ':') m++; // hehehe look ma i'm clever
@@ -837,8 +837,8 @@ void cmdmode(buf *b) {
 				free(i);
 				freebuf(search); // delete previous search
 				search = pipebuf(b, com, p_hiddenbuf);
-				delln(search, search->first); // remove blank newline
 				searchnext(b);
+				delln(search, search->first); // remove blank newline (it's been jumped now)
 				break;
 			case 'n':
 				searchnext(b);
