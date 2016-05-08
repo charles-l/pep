@@ -601,8 +601,8 @@ void drawstr(WINDOW *w, char *s) {
 void drawbuf(buf *b) {
 	char linenumfmt[12];
 	sprintf(linenumfmt, "%%%ii", lnn_width - 1);
-	wclear(win);
-	wclear(linenum);
+	werase(win);
+	werase(linenum);
 	line *l = b->scroll;
 	int i = 0;
 	int lnn = getlnn(b, b->scroll);
