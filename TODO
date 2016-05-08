@@ -3,9 +3,10 @@
     * fix delete in middle of line (on text that wasn't in current insert)
 * add config.h (with keybindings, etc)
 * start eating your dogfood boi
+* see if it's possible to pipe out syntax highlighting ;)
 * make undo work
     * handle multi-line deletion
-* syntax highlighting
+* syntax highlighting (minimal)
 * refactor/cleanup
     * don't make pipes wiggle screen
     * use states

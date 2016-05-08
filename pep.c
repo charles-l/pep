@@ -115,7 +115,6 @@ int searchnext(buf *b);
 int searchprev(buf *b);
 
 void filestatus(buf *b);
-void mvmsg();
 void showmsg(char *s);
 void promptcmd(buf *b);
 
@@ -127,7 +126,7 @@ void quit(buf *b);
 WINDOW *win;
 WINDOW *linenum;
 int lnn_width = 5;
-WINDOW *prompt; // TODO: make prompt draw to here
+WINDOW *prompt;
 buf *search = NULL;
 
 int is_eolch(char c) {
@@ -665,16 +664,10 @@ void filestatus(buf *b) {
 	showmsg(s);
 }
 
-void mvmsg() { // move to the message box
-	move(LINES - 1, 0);
-}
-
-void showmsg(char *s) { // display a message in the prompt box (LOLZ THIS ISNT A SEPARATE WINDOW HAHAHA)
-	// TODO: use prompt instead
-	mvmsg();
-	clrtoeol();
-	addstr(s);
-	wredrawln(win, LINES - 1, 1);
+void showmsg(char *s) {
+	wclrtoeol(prompt);
+	waddstr(prompt, s);
+	wrefresh(win);
 }
 
 #define showmsgf(s, ...) { \
@@ -683,11 +676,11 @@ void showmsg(char *s) { // display a message in the prompt box (LOLZ THIS ISNT A
 	showmsg(msg); \
 }
 
-char *readprompt(char *prompt) {
+char *readprompt(char *pfmt) {
 	char *r = malloc(COMMAND_LEN);
-	showmsg(prompt);
+	showmsg(pfmt);
 	echo();
-	getnstr(r, COMMAND_LEN);
+	wgetnstr(prompt, r, COMMAND_LEN);
 	noecho();
 	return r;
 }
@@ -701,7 +694,7 @@ void promptcmd(buf *b) { // TODO: refactor
 		if(strlen(com) <= 2) {
 			if(!b->filename) {
 				showmsg("no filename specified!");
-				getch();
+				wgetch(prompt);
 				return;
 			}
 			writefilebuf(b, b->filename);
@@ -751,7 +744,7 @@ int do_motion(buf *b, char c) {// motion is handled here.
 			m_bol(b);
 			return m_jump(b, b->last);
 		case 'g':
-			if(getch() == 'g')
+			if(wgetch(win) == 'g')
 				return m_jump(b, b->first);
 		case KEY_CF:
 			return m_nextscr(b);
@@ -1023,8 +1016,9 @@ void quit(buf *b) {
 
 int main(int argc, char **argv) {
 	if(initscr() == NULL) QERROR("error initializing ncurses");
-	win = newwin(LINES, COLS - lnn_width, 0, lnn_width);
-	linenum = newwin(LINES, lnn_width, 0, 0);
+	win = newwin(LINES - 1, COLS - lnn_width, 0, lnn_width);
+	linenum = newwin(LINES - 1, lnn_width, 0, 0);
+	prompt = newwin(1, COLS, LINES - 1, 0);
 
 	noecho();
 	scrollok(win, 1);
