@@ -69,6 +69,7 @@ typedef struct {
 } yank; // a single yank
 
 int is_eolch(char c);
+char *insertstr(char *s, char *i, int);	// insert string i into s at position
 int delln(buf *b, line *l);
 char curch(buf *b);			// current character
 char nextch(buf *b);			// next character
@@ -498,7 +499,13 @@ int e_yank(buf *b, line *start, line *end, int s, int e) {
 }
 
 int e_paste(buf *b) {
-	insln(b, b->cur, regs[0]->s);
+	if(regs[0]->type == LINE)
+		insln(b, b->cur, regs[0]->s);
+	else if (regs[0]->type == STRING){
+		char *n = insertstr(b->cur->s, regs[0]->s, b->linepos + 1);
+		free(b->cur->s);
+		b->cur->s = n;
+	}
 	return 0;
 }
 
@@ -1001,7 +1008,7 @@ buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *b, FILE *f)) {
 	}
 }
 
-char *insertstr(char *s, char *i, int p) { // insert string i into s at position p
+char *insertstr(char *s, char *i, int p) {
 	size_t l = strlen(s) + strlen(i);
 	char *n = malloc(l);
 	strncpy(n, s, p);
