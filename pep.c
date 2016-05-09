@@ -11,12 +11,8 @@
 #include <limits.h>
 #include <sys/wait.h>
 
-// configs
-#define TABSTOP 8     			// width of tab
-#define STATUS_LENGTH 256		// max length of status text
-#define COMMAND_LEN 256			// max command length
-#define SEARCH_COMMAND "grep -aon '%s'"
-#define LINEN_COL COLPAIR(COLOR_GRAY, COLOR_BLACK)
+// load config
+#include "config.h"
 
 /////
 
