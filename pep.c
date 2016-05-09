@@ -489,7 +489,7 @@ int e_yank(buf *b, line *start, line *end, int s, int e) {
 	if(start == end) {
 		yank *y = malloc(sizeof(yank));
 		y->type = STRING;
-		y->s = strndup(start->s + s, e - s);
+		y->s = strndup(start->s + s, e - s - 1);
 		insyank(y);
 	} else {
 		// TODO: implement
