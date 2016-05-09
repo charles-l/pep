@@ -1,8 +1,11 @@
 * make insert mode work
     * fix newline in middle of line
     * fix delete in middle of line (on text that wasn't in current insert)
-* add config.h (with keybindings, etc)
+* add yanking
 * start eating your dogfood boi
+* fix multiple buffers
+* pipe out to tmux for layout
+* make motions passable as structs of some sort
 * see if it's possible to pipe out syntax highlighting ;)
 * make undo work
     * handle multi-line deletion

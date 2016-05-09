@@ -60,6 +60,14 @@ typedef struct {
 	const char *filename;		// buffers filename
 } buf;
 
+typedef struct {
+	enum {LINE, STRING} type;
+	union {
+		line *l;
+		char *s;
+	};
+} yank; // a single yank
+
 int is_eolch(char c);
 int delln(buf *b, line *l);
 char curch(buf *b);			// current character
@@ -80,6 +88,9 @@ void appendstr(string *s, char *c);
 void appendch(string *s, char c);
 void freestr(string *s);
 
+void insyank(yank *y);
+void freeyank(yank *y);
+
 int m_nextch(buf *b);
 int m_nextwrd(buf *b);
 int m_prevwrd(buf *b);
@@ -93,6 +104,8 @@ int m_nextln(buf *b);
 
 int e_join(buf *b, line *start, line *end, int s, int e);
 int e_del(buf *b, line *start, line *end, int s, int e);
+int e_yank(buf *b, line *start, line *end, int s, int e);
+int e_paste(buf *b);
 int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
@@ -126,9 +139,10 @@ void quit(buf *b);
 // globals
 WINDOW *win;
 WINDOW *linenum;
-int lnn_width = 5;
 WINDOW *prompt;
-buf *search = NULL;
+buf *search = NULL; // search buffer
+yank *regs[YANK_HIST_SIZE] = {NULL};	// yank registers
+// TODO: add alphabet registers
 
 int is_eolch(char c) {
 	return c == '\0' || c == '\n';
@@ -293,6 +307,20 @@ void freestr(string *s) {
 	s = NULL;
 }
 
+//// YANKS ////
+
+void insyank(yank *y) {
+	freeyank(regs[YANK_HIST_SIZE - 1]); // free last register
+	memmove(regs + 1, regs, sizeof(yank *) * (YANK_HIST_SIZE - 1));
+	regs[0] = y;
+}
+
+void freeyank(yank *y) {
+	if(!y) return;
+	free(y->s); // yeh. that's all there is to it
+	free(y);
+}
+
 //// MOTIONS ////
 
 int m_nextch(buf *b) {
@@ -453,6 +481,24 @@ int e_del(buf *b, line *start, line *end, int s, int e) {
 		for(line *l = start; l != end->n; l = l->n) delln(b, l);
 	}
 	b->linepos = s;
+	return 0;
+}
+
+int e_yank(buf *b, line *start, line *end, int s, int e) {
+	if(start == end) {
+		yank *y = malloc(sizeof(yank));
+		y->type = STRING;
+		y->s = strndup(start->s + s, e - s);
+		insyank(y);
+	} else {
+		// TODO: implement
+	}
+	b->linepos = s;
+	return 0;
+}
+
+int e_paste(buf *b) {
+	insln(b, b->cur, regs[0]->s);
 	return 0;
 }
 
@@ -778,7 +824,18 @@ void cmdmode(buf *b) {
 					// braces aren't in place... oops
 					EDIT_MOTION(e_del, do_motion(b, c));
 				}
-				clrtoeol();
+				break;
+			case 'y':
+				c = wgetch(win);
+				if(c == 'y') {
+					// TODO: combine with dd somehow
+					// TODO: yank line
+				} else {
+					EDIT_MOTION(e_yank, do_motion(b, c));
+				}
+				break;
+			case 'p':
+				e_paste(b);
 				break;
 			case 'i':
 				e_insert(b);
@@ -797,11 +854,9 @@ void cmdmode(buf *b) {
 				break;
 			case 'x':
 				EDIT_MOTION(e_del, m_nextch(b));
-				clrtoeol();
 				break;
 			case 'J':
 				e_join(b, NULL, NULL, 0, 0);
-				clrtoeol();
 				break;
 			case 'u':
 				e_undo(b, NULL, NULL, 0, 0);
@@ -832,7 +887,6 @@ void cmdmode(buf *b) {
 			case '|':
 				i = readprompt("|");
 				pipebuf(b, i, p_insert);
-				clrtobot();
 				free(i);
 				break;
 			case '!':
