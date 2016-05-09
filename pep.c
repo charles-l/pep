@@ -16,6 +16,9 @@
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256			// max command length
 #define SEARCH_COMMAND "grep -aon '%s'"
+#define LINEN_COL COLPAIR(COLOR_GRAY, COLOR_BLACK)
+
+/////
 
 #define QERROR(x) { fprintf(stderr, "pep: %s\n", x); exit(1); }
 #define ERROR(x) { fprintf(stderr, "pep: %s\n", x); quit(b); }
@@ -25,6 +28,8 @@
 #define KEY_CB 2
 
 #define CHOPN(s) s[strlen(s)-1]='\0'    // chop newline
+#define COLOR_GRAY 8			// need gray
+#define COLPAIR(fg, bg) fg, bg		// hehehe abusing macro preprocessor
 
 typedef struct line { 			// double linked list
 	char *s;
@@ -610,7 +615,9 @@ void drawbuf(buf *b) {
 		if(i > LINES - 2) break;
 		wmove(win, i, 0);
 		drawstr(win, l->s);
+		wattron(linenum, COLOR_PAIR(1));
 		mvwprintw(linenum, i, 0, linenumfmt, lnn + i);
+		wattroff(linenum, COLOR_PAIR(1));
 	}
 	if(i < LINES - 2) { // fill empty lines with '~'
 		wclrtobot(win);
@@ -1016,9 +1023,13 @@ void quit(buf *b) {
 
 int main(int argc, char **argv) {
 	if(initscr() == NULL) QERROR("error initializing ncurses");
+	start_color();
+
 	win = newwin(LINES - 1, COLS - lnn_width, 0, lnn_width);
 	linenum = newwin(LINES - 1, lnn_width, 0, 0);
 	prompt = newwin(1, COLS, LINES - 1, 0);
+
+	init_pair(1, LINEN_COL);
 
 	noecho();
 	scrollok(win, 1);
