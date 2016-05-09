@@ -167,7 +167,10 @@ int delln(buf *b, line *l) {
 
 	free(l->s);
 	free(l); l = NULL;
-	clrtobot();
+	return 1;
+}
+
+int cpyln(buf *b, line *s, line *d) {
 	return 1;
 }
 
@@ -549,7 +552,6 @@ line *insln(buf *b, line *p, char *s) { // p is the line to insert after, s is t
 
 int e_new_line(buf *b) {
 	b->cur = insln(b, b->cur, "");
-	clrtobot();
 	return 0;
 }
 
@@ -930,7 +932,6 @@ buf *p_insert(buf *b, FILE *f) {
 		CHOPN(lnbuf);
 		insln(b, b->cur, lnbuf);
 	}
-	clrtobot();
 	return NULL;
 }
 
@@ -1054,6 +1055,7 @@ void insmode(buf *b) {
 			END_INSERT;
 			e_new_line(b);
 			m_bol(b);
+			drawbuf(b); // force redraw (since we're jumping right into the next insert mode)
 			return insmode(b);
 		} else
 			appendch(r, c);
