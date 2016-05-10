@@ -106,7 +106,7 @@ int m_nextln(buf *b);
 int e_join(buf *b, line *start, line *end, int s, int e);
 int e_del(buf *b, line *start, line *end, int s, int e);
 int e_yank(buf *b, line *start, line *end, int s, int e);
-int e_paste(buf *b);
+int e_paste(buf *b, yank *reg);
 int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
@@ -492,7 +492,7 @@ int e_yank(buf *b, line *start, line *end, int s, int e) {
 	if(start == end) {
 		yank *y = malloc(sizeof(yank));
 		y->type = STRING;
-		y->s = strndup(start->s + s, e - s - 1);
+		y->s = strndup(start->s + s, e - s);
 		insyank(y);
 	} else {
 		// TODO: implement
@@ -501,11 +501,12 @@ int e_yank(buf *b, line *start, line *end, int s, int e) {
 	return 0;
 }
 
-int e_paste(buf *b) {
-	if(regs[0]->type == LINE)
-		insln(b, b->cur, regs[0]->s);
-	else if (regs[0]->type == STRING){
-		char *n = insertstr(b->cur->s, regs[0]->s, b->linepos + 1);
+int e_paste(buf *b, yank *reg) {
+	if(!reg) return 0;
+	if(reg->type == LINE)
+		insln(b, b->cur, reg->s);
+	else if (reg->type == STRING){
+		char *n = insertstr(b->cur->s, reg->s, b->linepos + 1);
 		free(b->cur->s);
 		b->cur->s = n;
 	}
@@ -819,6 +820,7 @@ void cmdmode(buf *b) {
 	int ss, ee, d;		// start, end offest, and direction
 	char *i;		// command input string
 	char com[COMMAND_LEN];	// command string
+	int r;
 	while(1) {
 		drawbuf(b);
 		switch(c = wgetch(win)) {
@@ -844,7 +846,7 @@ void cmdmode(buf *b) {
 				}
 				break;
 			case 'p':
-				e_paste(b);
+				e_paste(b, regs[0]);
 				break;
 			case 'i':
 				e_insert(b);
@@ -892,6 +894,14 @@ void cmdmode(buf *b) {
 				break;
 			case ':':
 				promptcmd(b);
+				break;
+			case '"':
+				c = wgetch(win);
+				if(isdigit(c)) {
+					r = c - '0';
+					if((c = wgetch(win)) == 'p')
+						e_paste(b, regs[r]);
+				}
 				break;
 			case '|':
 				i = readprompt("|");
