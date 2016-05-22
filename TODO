@@ -1,3 +1,4 @@
+* remove copy paste buffer and use xsel
 * make insert mode work
     * fix newline in middle of line
     * fix delete in middle of line (on text that wasn't in current insert)

@@ -60,14 +60,6 @@ typedef struct {
 	const char *filename;		// buffers filename
 } buf;
 
-typedef struct {
-	enum {LINE, STRING} type;
-	union {
-		line *l;
-		char *s;
-	};
-} yank; // a single yank
-
 int is_eolch(char c);
 char *insertstr(char *s, char *i, int);	// insert string i into s at position
 int delln(buf *b, line *l);
@@ -89,9 +81,6 @@ void appendstr(string *s, char *c);
 void appendch(string *s, char c);
 void freestr(string *s);
 
-void insyank(yank *y);
-void freeyank(yank *y);
-
 int m_nextch(buf *b);
 int m_nextwrd(buf *b);
 int m_prevwrd(buf *b);
@@ -106,7 +95,7 @@ int m_nextln(buf *b);
 int e_join(buf *b, line *start, line *end, int s, int e);
 int e_del(buf *b, line *start, line *end, int s, int e);
 int e_yank(buf *b, line *start, line *end, int s, int e);
-int e_paste(buf *b, yank *reg);
+int e_paste(buf *b);
 int e_insert(buf *b);
 int e_new_line(buf *b);
 int e_undo(buf *b, line *start, line *end, int s, int e);
@@ -115,6 +104,7 @@ buf *pipebuf(buf *b, char *cmd, buf *(*fun)(buf *b, FILE *f));
 buf *p_insert(buf *b, FILE *f);
 buf *p_replace(buf *b, FILE *f);
 buf *p_hiddenbuf(buf *b, FILE *f);
+buf *p_none(buf *b, FILE *f);
 
 void drawnstr(WINDOW *w, char *s, int n);
 void drawstr(WINDOW *w, char *s);
@@ -142,7 +132,6 @@ WINDOW *win;
 WINDOW *linenum;
 WINDOW *prompt;
 buf *search = NULL; // search buffer
-yank *regs[YANK_HIST_SIZE] = {NULL};	// yank registers
 // TODO: add alphabet registers
 
 int is_eolch(char c) {
@@ -311,20 +300,6 @@ void freestr(string *s) {
 	s = NULL;
 }
 
-//// YANKS ////
-
-void insyank(yank *y) {
-	freeyank(regs[YANK_HIST_SIZE - 1]); // free last register
-	memmove(regs + 1, regs, sizeof(yank *) * (YANK_HIST_SIZE - 1));
-	regs[0] = y;
-}
-
-void freeyank(yank *y) {
-	if(!y) return;
-	free(y->s); // yeh. that's all there is to it
-	free(y);
-}
-
 //// MOTIONS ////
 
 int m_nextch(buf *b) {
@@ -490,10 +465,11 @@ int e_del(buf *b, line *start, line *end, int s, int e) {
 
 int e_yank(buf *b, line *start, line *end, int s, int e) {
 	if(start == end) {
-		yank *y = malloc(sizeof(yank));
-		y->type = STRING;
-		y->s = strndup(start->s + s, e - s);
-		insyank(y);
+		buf *y = newbuf();
+		insln(y, y->first, strndup(start->s + s, e - s));
+		delln(y, y->first); // remove blank line
+		pipebuf(y, "xsel -ib", p_none);
+		freebuf(y);
 	} else {
 		// TODO: implement
 	}
@@ -501,15 +477,12 @@ int e_yank(buf *b, line *start, line *end, int s, int e) {
 	return 0;
 }
 
-int e_paste(buf *b, yank *reg) {
-	if(!reg) return 0;
-	if(reg->type == LINE)
-		insln(b, b->cur, reg->s);
-	else if (reg->type == STRING){
-		char *n = insertstr(b->cur->s, reg->s, b->linepos + 1);
-		free(b->cur->s);
-		b->cur->s = n;
-	}
+int e_paste(buf *b) {
+	buf *p = newbuf();
+	pipebuf(p, "xsel -ob", p_insert);
+	char *n = insertstr(b->cur->s, p->first->n->s, b->linepos + 1);
+	free(b->cur->s);
+	b->cur->s = n;
 	return 0;
 }
 
@@ -846,7 +819,7 @@ void cmdmode(buf *b) {
 				}
 				break;
 			case 'p':
-				e_paste(b, regs[0]);
+				e_paste(b);
 				break;
 			case 'i':
 				e_insert(b);
@@ -895,14 +868,6 @@ void cmdmode(buf *b) {
 			case ':':
 				promptcmd(b);
 				break;
-			case '"':
-				c = wgetch(win);
-				if(isdigit(c)) {
-					r = c - '0';
-					if((c = wgetch(win)) == 'p')
-						e_paste(b, regs[r]);
-				}
-				break;
 			case '|':
 				i = readprompt("|");
 				pipebuf(b, i, p_insert);
@@ -942,6 +907,10 @@ buf *p_insert(buf *b, FILE *f) {
 		CHOPN(lnbuf);
 		insln(b, b->cur, lnbuf);
 	}
+	return NULL;
+}
+
+buf *p_none(buf *b, FILE *f) { // essentially a NOP
 	return NULL;
 }
 
