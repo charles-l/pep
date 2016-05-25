@@ -75,6 +75,7 @@ char *findsubstr(char *s, char *f);
 line *lncpy(line *start, line *end);
 line *insln(buf *b, line *p, char *s);  // add a new line after p, with content s (s is strdupped)
 void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
+int getlnn(buf *b, line *l);
 
 string *newstr(char *content, size_t n);
 void appendstr(string *s, char *c);
@@ -113,10 +114,10 @@ void writefilebuf(buf *b, const char *fname);
 buf *newbuf(void);
 buf *loadfilebuf(const char *fname);
 buf *readbuf(FILE *f, const char *fname);
-void freebuf(buf *b);
+void freebuf(buf **b);
 void drawbuf(buf *b);
 
-int searchnext(buf *b);
+int searchnext(buf *b, line *start);
 int searchprev(buf *b);
 
 void filestatus(buf *b);
@@ -185,7 +186,7 @@ int eos(char *c) {
 
 int getlnn(buf *b, line *l) {
 	int i = 1;
-	for(line *t = b->first; t != l; t = t->n, i++);
+	for(line *t = b->first; t && (t != l); t = t->n, i++);
 	return i;
 }
 
@@ -469,7 +470,7 @@ int e_yank(buf *b, line *start, line *end, int s, int e) {
 		insln(y, y->first, strndup(start->s + s, e - s));
 		delln(y, y->first); // remove blank line
 		pipebuf(y, "xsel -ib", p_none);
-		freebuf(y);
+		freebuf(&y);
 	} else {
 		// TODO: implement
 	}
@@ -595,19 +596,20 @@ void writefilebuf(buf *b, const char *fname) {
 	fclose(f);
 }
 
-void freebuf(buf *b) {
-	if(!b) return; // don't try to free NULL
-	while(b->first != NULL) {
-		free(b->first->s);
-		free(b->first);
-		b->first = b->first->n;
+void freebuf(buf **b) {
+	if(!*b) return; // don't try to free NULL
+	while((*b)->first != NULL) {
+		free((*b)->first->s);
+		free((*b)->first);
+		(*b)->first = (*b)->first->n;
 	}
-	while(b->undos != NULL) {
-		free(b->undos->l->s);
-		free(b->undos->l);
-		free(b->undos);
-		b->undos = b->undos->n;
+	while((*b)->undos != NULL) {
+		free((*b)->undos->l->s);
+		free((*b)->undos->l);
+		free((*b)->undos);
+		(*b)->undos = (*b)->undos->n;
 	}
+	*b = NULL;
 }
 
 void drawnstr(WINDOW *w, char *s, int n) {
@@ -656,14 +658,18 @@ void drawbuf(buf *b) {
 
 // TODO: move, since they're technically motions (rename and fix, etc)
 // TODO: also through search code in do_motion
-int searchnext(buf *b) {
+int searchnext(buf *b, line *start) {
 	if(!search) return 0;
+	if(!start) start = b->first;
 	if(search->cur->n)
 		search->cur = search->cur->n;
 	else if(search->cur == search->last)
 		search->cur = search->first;
 
 	if(search->cur && (strlen(search->cur->s) > 0)) {
+		int i = atoi(search->cur->s);
+		if (i < getlnn(b, start)) // don't jump *before* cursor
+			return searchnext(b, start);
 		m_jumpn(b, atoi(search->cur->s));
 		char *m = search->cur->s + 1;
 		while(m[-1] != ':') m++; // hehehe look ma i'm clever
@@ -882,13 +888,13 @@ void cmdmode(buf *b) {
 				i = readprompt("/");
 				sprintf(com, SEARCH_COMMAND, i);
 				free(i);
-				freebuf(search); // delete previous search
+				freebuf(&search); // delete previous search
 				search = pipebuf(b, com, p_hiddenbuf);
-				searchnext(b);
+				searchnext(b, b->cur);
 				delln(search, search->first); // remove blank newline (it's been jumped now)
 				break;
 			case 'n':
-				searchnext(b);
+				searchnext(b, NULL);
 				break;
 			case 'N':
 				searchprev(b);
@@ -923,7 +929,7 @@ buf *p_replace(buf *b, FILE *f) {
 		insln(n, n->last, lnbuf);
 	}
 	delln(n, n->first); // remove empty line
-	freebuf(b);
+	freebuf(&b);
 	*b = *n;
 	return NULL;
 }
@@ -1050,8 +1056,8 @@ void insmode(buf *b) {
 }
 
 void quit(buf *b) {
-	freebuf(b);
-	freebuf(search);
+	freebuf(&b);
+	freebuf(&search);
 	delwin(win);
 	delwin(linenum);
 	delwin(prompt);
