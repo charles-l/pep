@@ -1,2 +1,4 @@
 pep
 *.o
+*.swp
+tags

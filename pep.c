@@ -13,6 +13,7 @@
 
 // load config
 #include "config.h"
+#include "astr.h"
 
 /////
 
@@ -43,12 +44,6 @@ typedef struct undo { 			// saves an entire line in the undo list
 	struct undo *n;	  		// next undo (linked list)
 } undo;
 
-typedef struct string {			// auto growing string (only use when necessary)
-	char *ss;			// content
-	size_t s;			// size
-	size_t l;			// length
-} string;
-
 typedef struct {
 	line *first;	  		// first line in file
 	line *cur;	  		// current line
@@ -76,11 +71,6 @@ line *lncpy(line *start, line *end);
 line *insln(buf *b, line *p, char *s);  // add a new line after p, with content s (s is strdupped)
 void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
 int getlnn(buf *b, line *l);
-
-string *newstr(char *content, size_t n);
-void appendstr(string *s, char *c);
-void appendch(string *s, char c);
-void freestr(string *s);
 
 int m_nextch(buf *b);
 int m_nextwrd(buf *b);
@@ -257,50 +247,6 @@ void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t) {
 	b->undos = u;
 }
 
-//// AUTO GROWING STRINGS ////
-
-string *newstr(char *content, size_t n) {
-	string *s = malloc(sizeof(string));
-	s->l = strlen(content);
-	s->s = n;
-	s->ss = malloc(s->s);
-	strcpy(s->ss, content);
-	return s;
-}
-
-void appendstr(string *s, char *c) {
-	size_t l = strlen(c);
-	if(s->l + l + 1 > s->s) {
-		s->s *= 2;
-		s->ss = realloc(s->ss, s->s);
-	}
-	s->l += l;
-	strcat(s->ss, c);
-}
-
-void appendch(string *s, char c) {
-	if(s->l + 1 > s->s) {
-		s->s *= 2;
-		s->ss = realloc(s->ss, s->s);
-	}
-	s->ss[s->l++] = c;
-	s->ss[s->l] = '\0';
-}
-
-int remch(string *s) { // backspace
-	if(s->l > 0) {
-		s->ss[--s->l] = '\0';
-		return 1;
-	}
-	return 0;
-}
-
-void freestr(string *s) {
-	free(s->ss);
-	free(s);
-	s = NULL;
-}
-
 //// MOTIONS ////
 
 int m_nextch(buf *b) {
@@ -317,7 +263,7 @@ int m_nextwrd(buf *b) {
 				&& ((isspace(prevch(b)) && !isspace(curch(b)))
 					|| (isalpha(prevch(b)) && !isalpha(curch(b)))
 					|| (!isalpha(prevch(b)) && isalpha(curch(b)))))
-				return 1;
+			return 1;
 		else
 			return m_nextwrd(b);
 	else {
@@ -334,7 +280,7 @@ int m_prevwrd(buf *b) {
 				&& ((isspace(prevch(b)) && !isspace(curch(b)))
 					|| (isalpha(prevch(b)) && !isalpha(curch(b)))
 					|| (!isalpha(prevch(b)) && isalpha(curch(b)))))
-				return -1;
+			return -1;
 		else
 			return m_prevwrd(b);
 	else {
@@ -750,7 +696,7 @@ void promptcmd(buf *b) { // TODO: refactor
 //// INPUT HANDLERS / DRAWS ////
 
 #define EDIT_MOTION(edit, motion)\
-ss = b->linepos; s = b->cur;	\
+	ss = b->linepos; s = b->cur;	\
 d = motion;			\
 ee = b->linepos; e = b->cur;	\
 if(d<0) {			\
@@ -1020,13 +966,13 @@ buf *newbuf(void) {
 // duplicated stuff in the insert function
 #define END_INSERT \
 	char *n = insertstr(b->cur->s, r->ss, b->linepos);	\
-	free(b->cur->s);		 		\
-	b->cur->s = n;					\
-	b->linepos = b->linepos + strlen(r->ss) - 1;	\
-	freestr(r);
+free(b->cur->s);		 		\
+b->cur->s = n;					\
+b->linepos = b->linepos + strlen(r->ss) - 1;	\
+freestr(r);
 
 void insmode(buf *b) {
-	string *r = newstr("", 128); // auto grow string
+	astr_t *r = newstr("", 128); // auto grow string
 	char c;
 	while((c = wgetch(win)) != KEY_ESC) {
 		int l = getcurlnn(b);
