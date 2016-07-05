@@ -528,9 +528,10 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 		b->undos->l->p = b->cur->p;
 
 		if(b->undos->type == CHANGED) {
-			insertstr(b->cur->s, b->undos->l->s, b->undos->offset);
+			delln(b, b->cur);
+			b->cur = inslnb(b, b->cur, b->undos->l);
 		} else if(b->undos->type == DELETED) {
-			inslnb(b, b->cur, b->undos->l);
+			b->cur = inslnb(b, b->cur, b->undos->l);
 		}
 
 		b->linepos = b->undos->offset;
