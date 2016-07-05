@@ -21,11 +21,11 @@
 #define ERROR(x) { fprintf(stderr, "pep: %s\n", x); quit(b); }
 #define KEY_ESC 0x1B			// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
-#define KEY_CF 6
-#define KEY_CB 2
+#define KEY_CF 6			// ctrl-f keycode
+#define KEY_CB 2			// ctrl-b keycode
 
 #define CHOPN(s) s[strlen(s)-1]='\0'    // chop newline
-#define COLOR_GRAY 8			// need gray
+#define COLOR_GRAY 8
 #define COLPAIR(fg, bg) fg, bg		// hehehe abusing macro preprocessor
 
 typedef struct line { 			// double linked list
@@ -37,41 +37,42 @@ typedef struct line { 			// double linked list
 enum undo_t {DELETED, CHANGED};
 
 typedef struct undo { 			// saves an entire line in the undo list
-	line *p;			// starting position
-	int pp;				// starting position offset
-	line *l;			// stores changes
-	enum undo_t t;
 	struct undo *n;	  		// next undo (linked list)
+	line *l;			// undo data
+	int ln;				// line number
+	int offset;			// starting position offset
+	enum undo_t type;
 } undo;
 
 typedef struct {
+	const char *filename;		// buffers filename
+	undo *undos;  			// linked list of undos
 	line *first;	  		// first line in file
 	line *cur;	  		// current line
 	line *last;       		// last line in file
 	line *scroll;     		// top of current scroll position
 	int linepos;      		// byte position on line
-	undo *undos;  			// linked list of undos
-	undo *redos;  			// linked list of redos
-	const char *filename;		// buffers filename
 } buf;
 
 int is_eolch(char c);
-char *insertstr(char *s, char *i, int);	// insert string i into s at position
+line *dupln(line *l);
 int delln(buf *b, line *l);
-int yankln(buf *b, line *l);
-char curch(buf *b);			// current character
-char nextch(buf *b);			// next character
-char prevch(buf *b);			// previous character
-int eos(char *c);			// distance to end of string
-int getlnn(buf *b, line *l);		// get line number of file
-int getcurlnn(buf *b);			// get visual y position of cursor
-int getvlnpos(char *s, int pos);	// get visual x cursor position
-int swap(line **s, line **e);
-char *findsubstr(char *s, char *f);
-line *lncpy(line *start, line *end);
-line *insln(buf *b, line *p, char *s);  // add a new line after p, with content s (s is strdupped)
-void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
+
+char curch(buf *b);
+char nextch(buf *b);
+char prevch(buf *b);
+int eos(char *c);
+
 int getlnn(buf *b, line *l);
+int getcurlnn(buf *b);
+int getvlnpos(char *s, int pos);
+
+int jmpln(buf *b, int i);
+int swap(line **s, line **e);
+
+char *findsubstr(char *s, char *sub);
+line *lncpy(line *start, line *end);
+void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
 
 int m_nextch(buf *b);
 int m_nextwrd(buf *b);
@@ -81,31 +82,38 @@ int m_eol(buf *b);
 int m_bol(buf *b);
 int m_jump(buf *b, line *start);
 int m_jumpn(buf *b, int ln);
+int m_smartbol(buf *b);
 int m_prevln(buf *b);
 int m_nextln(buf *b);
+int m_boscr(buf *b);
+int m_eoscr(buf *b);
+int m_nextscr(buf *b);
+int m_prevscr(buf *b);
 
-int e_join(buf *b, line *start, line *end, int s, int e);
+int e_join(buf *b, line *start, line *end, int _a, int _b);
 int e_del(buf *b, line *start, line *end, int s, int e);
+
+int yankln(buf *b, line *l);
+
 int e_yank(buf *b, line *start, line *end, int s, int e);
 int e_paste(buf *b);
-int e_insert(buf *b);
-int e_new_line(buf *b);
-int e_undo(buf *b, line *start, line *end, int s, int e);
 
-buf *pipebuf(buf *b, char *cmd, buf *(*fun)(buf *b, FILE *f));
-buf *p_insert(buf *b, FILE *f);
-buf *p_replace(buf *b, FILE *f);
-buf *p_hiddenbuf(buf *b, FILE *f);
-buf *p_none(buf *b, FILE *f);
+char *insrtstr(char *s, char *i, int p);
+
+int e_insert(buf *b);
+line *newln(char *s);
+line *insln(buf *b, line *p, line *s);
+line *inslnb(buf *b, line *p, line *s); // insert line before
+int e_new_line(buf *b);
+int e_undo(buf *b, line *start, line *end, int _a, int _b);
+
+buf *readbuf(FILE *f, const char *fname); // read from a file pointer
+buf *loadfilebuf(const char *fname);
+void writefilebuf(buf *b, const char *fname);
+void freebuf(buf **b);
 
 void drawnstr(WINDOW *w, char *s, int n);
 void drawstr(WINDOW *w, char *s);
-void writefilebuf(buf *b, const char *fname);
-
-buf *newbuf(void);
-buf *loadfilebuf(const char *fname);
-buf *readbuf(FILE *f, const char *fname);
-void freebuf(buf **b);
 void drawbuf(buf *b);
 
 int searchnext(buf *b, line *start);
@@ -113,11 +121,23 @@ int searchprev(buf *b);
 
 void filestatus(buf *b);
 void showmsg(char *s);
+char *readprompt(char *pfmt);
 void promptcmd(buf *b);
-
+int do_motion(buf *b, char c);
 void cmdmode(buf *b);
+
+buf *p_insert(buf *b, FILE *f);
+buf *p_none(buf *b, FILE *f);
+buf *p_replace(buf *b, FILE *f);
+buf *p_hiddenbuf(buf *b, FILE *f);
+
+buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *b, FILE *f));
+char *insertstr(char *s, char *i, int p);
+buf *newbuf(void);
+
 void insmode(buf *b);
 void quit(buf *b);
+int main(int argc, char **argv);
 
 // globals
 WINDOW *win;
@@ -184,12 +204,6 @@ int getcurlnn(buf *b) {
 	return i;
 }
 
-int jmpln(buf *b, int i) {
-	b->cur = b->first;
-	while(i-- > 0)
-		m_nextln(b);
-}
-
 int getvlnpos(char *s, int pos) {
 	int i = 0;
 	for(int j = 0; j < pos; j++)
@@ -202,6 +216,12 @@ int getvlnpos(char *s, int pos) {
 				break;
 		}
 	return i;
+}
+
+int jmpln(buf *b, int i) {
+	b->cur = b->first;
+	while(i-- > 0)
+		m_nextln(b);
 }
 
 int swap(line **s, line **e) {
@@ -237,10 +257,10 @@ line *lncpy(line *start, line *end) {
 
 void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t) {
 	undo *u = malloc(sizeof(undo));
-	u->p = b->cur;
-	u->pp = offset;
+	u->ln = getlnn(b, start) - 1; // getlnn is 1-based
+	u->offset = offset;
 	u->n = b->undos;
-	u->t = t;
+	u->type = t;
 	u->l = lncpy(start, end);
 	b->undos = u;
 }
@@ -412,7 +432,7 @@ int yankln(buf *b, line *l) {
 	buf *y = newbuf();
 	astr_t *s = newstr("\n", 1);
 	appendstr(s, l->s);
-	insln(y, y->first, s->ss);
+	insln(y, y->first, newln(s->ss));
 	freestr(s);
 	delln(y, y->first); // remove blank line
 	pipebuf(y, "xsel -ib", p_none);
@@ -422,7 +442,7 @@ int yankln(buf *b, line *l) {
 int e_yank(buf *b, line *start, line *end, int s, int e) {
 	if(start == end) {
 		buf *y = newbuf();
-		insln(y, y->first, strndup(start->s + s, e - s));
+		insln(y, y->first, newln(strndup(start->s + s, e - s)));
 		delln(y, y->first); // remove blank line
 		pipebuf(y, "xsel -ib", p_none);
 		freebuf(&y);
@@ -437,7 +457,7 @@ int e_paste(buf *b) {
 	buf *p = newbuf();
 	pipebuf(p, "xsel -ob", p_insert);
 	if(p->first->n->s[0] == '\n') {
-		insln(b, b->cur, "");
+		insln(b, b->cur, newln(""));
 		m_nextln(b);
 	}
 	char *n = insertstr(b->cur->s, p->first->n->s, b->linepos + 1);
@@ -470,40 +490,50 @@ line *newln(char *s) {
 	return l;
 }
 
-line *insln(buf *b, line *p, char *s) { // p is the line to insert after, s is the content of the new line
-	line *l = newln(s);
-	if(p->n) {
-		l->n = p->n;
-		p->n->p = l;
+line *insln(buf *b, line *c, line *l) { // c is the line to insert after, s is the new line
+	if(c->n) {
+		l->n = c->n;
+		c->n->p = l;
 	} else {
 		l->n = NULL;
 		b->last = l;
 	}
-	l->p = p;
-	p->n = l;
+	l->p = c;
+	c->n = l;
+	return l;
+}
+
+line *inslnb(buf *b, line *c, line *l) { // p is the line to insert before, s is the new line
+	if(c->p) {
+		l->p = c->p;
+		c->p->n = l;
+	} else {
+		l->p = NULL;
+		b->first = l;
+	}
+	l->n = c;
+	c->p = l;
 	return l;
 }
 
 int e_new_line(buf *b) {
-	b->cur = insln(b, b->cur, "");
+	b->cur = insln(b, b->cur, newln(""));
 	return 0;
 }
 
 int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 	if(b->undos != NULL) {
-		b->undos->l->n = b->undos->p->n;
-		b->undos->l->p = b->undos->p->p;
+		jmpln(b, b->undos->ln);
+		b->undos->l->n = b->cur->n;
+		b->undos->l->p = b->cur->p;
 
-		line *l;
-		if(b->undos->t == CHANGED) {
-			*(b->undos->p) = *(b->undos->l);
-			l = b->undos->p;
-		} else if(b->undos->t == DELETED) {
-			l = insln(b, b->undos->p->p, b->undos->l->s);
+		if(b->undos->type == CHANGED) {
+			insertstr(b->cur->s, b->undos->l->s, b->undos->offset);
+		} else if(b->undos->type == DELETED) {
+			inslnb(b, b->cur, b->undos->l);
 		}
 
-		b->cur = l;
-		b->linepos = b->undos->pp;
+		b->linepos = b->undos->offset;
 
 		undo *u = b->undos;
 		b->undos = b->undos->n;
@@ -818,9 +848,7 @@ void cmdmode(buf *b) {
 				e_insert(b);
 				break;
 			case 'O':
-				m_prevln(b);
-				m_bol(b);
-				e_new_line(b);
+				b->cur = inslnb(b, b->cur, newln(""));
 				e_insert(b);
 				break;
 			case 'H':
@@ -869,7 +897,7 @@ buf *p_insert(buf *b, FILE *f) {
 	char lnbuf[LINE_MAX];
 	while(fgets(lnbuf, LINE_MAX, f) > 0) {
 		CHOPN(lnbuf);
-		insln(b, b->cur, lnbuf);
+		insln(b, b->cur, newln(lnbuf));
 	}
 	return NULL;
 }
@@ -884,7 +912,7 @@ buf *p_replace(buf *b, FILE *f) {
 	while(fgets(lnbuf, LINE_MAX, f) > 0) {
 		CHOPN(lnbuf);
 		delln(b, b->first);
-		insln(n, n->last, lnbuf);
+		insln(n, n->last, newln(lnbuf));
 	}
 	delln(n, n->first); // remove empty line
 	freebuf(&b);
@@ -897,7 +925,7 @@ buf *p_hiddenbuf(buf *b, FILE *f) { // capture output of command in new buffer
 	buf *n = newbuf();
 	while(fgets(lnbuf, LINE_MAX, f) > 0) {
 		CHOPN(lnbuf);
-		insln(n, n->last, lnbuf);
+		insln(n, n->last, newln(lnbuf));
 	}
 	return n;
 }
