@@ -58,6 +58,7 @@ typedef struct {
 int is_eolch(char c);
 char *insertstr(char *s, char *i, int);	// insert string i into s at position
 int delln(buf *b, line *l);
+int yankln(buf *b, line *l);
 char curch(buf *b);			// current character
 char nextch(buf *b);			// next character
 char prevch(buf *b);			// previous character
@@ -147,10 +148,7 @@ int delln(buf *b, line *l) {
 
 	free(l->s);
 	free(l); l = NULL;
-	return 1;
-}
-
-int cpyln(buf *b, line *s, line *d) {
+	m_bol(b);
 	return 1;
 }
 
@@ -410,6 +408,17 @@ int e_del(buf *b, line *start, line *end, int s, int e) {
 	return 0;
 }
 
+int yankln(buf *b, line *l) {
+	buf *y = newbuf();
+	astr_t *s = newstr("\n", 1);
+	appendstr(s, l->s);
+	insln(y, y->first, s->ss);
+	freestr(s);
+	delln(y, y->first); // remove blank line
+	pipebuf(y, "xsel -ib", p_none);
+	freebuf(&y);
+}
+
 int e_yank(buf *b, line *start, line *end, int s, int e) {
 	if(start == end) {
 		buf *y = newbuf();
@@ -427,6 +436,10 @@ int e_yank(buf *b, line *start, line *end, int s, int e) {
 int e_paste(buf *b) {
 	buf *p = newbuf();
 	pipebuf(p, "xsel -ob", p_insert);
+	if(p->first->n->s[0] == '\n') {
+		insln(b, b->cur, "");
+		m_nextln(b);
+	}
 	char *n = insertstr(b->cur->s, p->first->n->s, b->linepos + 1);
 	free(b->cur->s);
 	b->cur->s = n;
@@ -764,8 +777,7 @@ void cmdmode(buf *b) {
 			case 'y':
 				c = wgetch(win);
 				if(c == 'y') {
-					// TODO: combine with dd somehow
-					// TODO: yank line
+					yankln(b, b->cur);
 				} else {
 					EDIT_MOTION(e_yank, do_motion(b, c));
 				}

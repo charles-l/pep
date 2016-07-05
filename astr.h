@@ -14,5 +14,6 @@ astr_t *newstr(char *content, size_t n);
 void appendstr(astr_t *s, char *c);
 void appendch(astr_t *s, char c);
 void freestr(astr_t *s);
+int remch(astr_t *s);
 
 #endif // ASTR_H

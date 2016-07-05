@@ -1,7 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
-#define TABSTOP 8     			// width of tab
+#define TABSTOP 4     			// width of tab
 #define STATUS_LENGTH 256		// max length of status text
 #define COMMAND_LEN 256			// max command length
 #define YANK_HIST_SIZE 5        // number of chronological yanks
