@@ -21,7 +21,7 @@ A minimal orthogonal Vim-like clone.
     * Edits track the difference between two motions and perform some transformation on the inbetween
 
 ## TODO
-* Make usable
+* Make usable (i.e. fix crashes...)
 * Have config header
 * Make keybindings easier to configure
 * Make extensibility easier

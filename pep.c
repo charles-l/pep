@@ -78,6 +78,7 @@ line *lncpy(line *start, line *end);
 void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
 
 int m_nextch(buf *b);
+int m_nextchf(buf *b); // force step to the next character (for line ending)
 int m_nextwrd(buf *b);
 int m_prevwrd(buf *b);
 int m_prevch(buf *b);
@@ -185,7 +186,7 @@ char curch(buf *b) {
 
 char nextch(buf *b) {
 	if(curch(b) == '\0') return '\0';
-	return b->cur->s[b->linepos];
+	return b->cur->s[b->linepos + 1];
 }
 
 char prevch(buf *b) {
@@ -296,6 +297,14 @@ int m_nextch(buf *b) {
 	return 0;
 }
 
+int m_nextchf(buf *b) {
+	if(curch(b) != '\0') {
+		b->linepos++;
+		return 1;
+	}
+	return 0;
+}
+
 int m_nextwrd(buf *b) {
 	if(m_nextch(b))
 		if(!isspace(curch(b))
@@ -323,8 +332,8 @@ int m_prevwrd(buf *b) {
 		else
 			return m_prevwrd(b);
 	else {
-		m_prevln(b);
-		m_eol(b);
+		if(m_prevln(b))
+			m_eol(b);
 		return -1;
 	}
 }
@@ -338,7 +347,7 @@ int m_prevch(buf *b) {
 }
 
 int m_eol(buf *b) {
-	for(b->linepos = 0; !is_eolch(nextch(b)); b->linepos++);
+	for(b->linepos = 0; !is_eolch(curch(b)); b->linepos++);
 	return 1;
 }
 
@@ -573,7 +582,7 @@ buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
 	if(f != NULL)
 		for(int i = 0; fgets(s, LINE_MAX, f) != NULL; i++) {
 			line *l = malloc(sizeof(line));
-			l->s = strndup(s, strlen(s) - 1); // strip off '\n'
+			l->s = chomp(strndup(s, strlen(s) - 1)); // chomp after removing known newline
 			if(i == 0) {
 				l->n = NULL;
 				l->p = NULL;
@@ -855,7 +864,7 @@ void cmdmode(buf *b) {
 				e_insert(b);
 				break;
 			case 'x':
-				EDIT_MOTION(e_del, m_nextch(b));
+				EDIT_MOTION(e_del, m_nextchf(b));
 				break;
 			case 'J':
 				e_join(b, NULL, NULL, 0, 0);
@@ -914,6 +923,7 @@ void cmdmode(buf *b) {
 				if(do_motion(b, c)) // assume it's a motion
 					break;
 		}
+		if(curch(b) == '\0') m_prevch(b); // correct the location if we need to
 	}
 }
 
