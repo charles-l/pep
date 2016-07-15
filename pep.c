@@ -18,7 +18,7 @@
 /////
 
 #define QERROR(x) { fprintf(stderr, "pep: %s\n", x); exit(1); }
-#define ERROR(x) { fprintf(stderr, "pep: %s\n", x); quit(b); }
+#define ERROR(x) { fprintf(stderr, "pep: %s\n", x); quit(&b); }
 #define KEY_ESC 0x1B			// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6			// ctrl-f keycode
@@ -139,7 +139,7 @@ char *insertstr(char *s, char *i, int p);
 buf *newbuf(void);
 
 void insmode(buf *b);
-void quit(buf *b);
+void quit(buf **b);
 int main(int argc, char **argv);
 
 // globals
@@ -567,8 +567,9 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 
 		b->linepos = b->undos->offset;
 
-		free(b->undos);
+		undo *u = b->undos;
 		b->undos = b->undos->n; // unsafeness for cleverness sake (it's not multithreaded - so meh)
+		free(u);
 	}
 	return 0;
 }
@@ -626,9 +627,11 @@ void freebuf(buf **b) {
 		(*b)->first = (*b)->first->n;
 	}
 	while((*b)->undos) {
+		puts("HI");
 		freeln(&((*b)->undos->l));
-		free((*b)->undos);
+		undo *u = (*b)->undos;
 		(*b)->undos = (*b)->undos->n;
+		free(u);
 	}
 	*b = NULL;
 }
@@ -748,7 +751,7 @@ void promptcmd(buf *b) { // TODO: refactor
 	char *com = readprompt(":");
 
 	if(com[0] == 'q') {
-		quit(b);
+		quit(&b);
 	} else if(com[0] == 'w') {
 		if(strlen(com) <= 2) {
 			if(!b->filename) {
@@ -917,6 +920,14 @@ void cmdmode(buf *b) {
 			case 'N':
 				searchprev(b);
 				break;
+			case 'Z':
+				switch(wgetch(win)) {
+					case 'Q':
+						quit(&b);
+					case 'Z':
+						writefilebuf(b, b->filename);
+						quit(&b);
+				}
 			default:
 				// TODO: properly handle numbers
 				if(do_motion(b, c)) // assume it's a motion
@@ -1074,9 +1085,9 @@ void insmode(buf *b) {
 	END_INSERT;
 }
 
-void quit(buf *b) {
+void quit(buf **b) {
 	endwin();
-	freebuf(&b);
+	freebuf(b);
 	freebuf(&search);
 	delwin(win);
 	delwin(linenum);
@@ -1104,7 +1115,5 @@ int main(int argc, char **argv) {
 	}
 
 	cmdmode(b);
-
-	quit(b); // shouldn't ever get reached
 	return 0;
 }
