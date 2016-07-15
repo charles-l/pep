@@ -155,7 +155,9 @@ int is_eolch(char c) {
 
 line *dupln(line *l) {
 	line *r = malloc(sizeof(line));
-	*r = *l;
+	r->s = strdup(l->s);
+	r->p = NULL;
+	r->n = NULL;
 	return r;
 }
 
@@ -268,12 +270,13 @@ char *joinstr(char *a, char *b) { // destructive
 }
 
 line *lncpy(line *start, line *end) {
-	line *r = malloc(sizeof(line));
-	r->n = NULL;
-	r->p = NULL;
-	if(start == end) {
-		r->s = malloc(strlen(start->s));
-		strcpy(r->s, start->s);
+	line *r = dupln(start);
+	line *p = r;
+	while(start != end) {
+		p->n = dupln(start->n);
+		p->n->p = r;
+		r->n->n = NULL;
+		start = start->n;
 	}
 	return r;
 }
@@ -453,6 +456,7 @@ int e_del(buf *b, line *start, line *end, int s, int e) {
 		pushundo(b, start, end, b->linepos, CHANGED);
 		memmove(start->s + s, end->s + e, strlen(end->s + e) + 1);
 	} else {
+		pushundo(b, start, end, b->linepos, DELETED);
 		for(line *l = start; l != end->n; l = l->n) delln(b, l);
 	}
 	b->linepos = s;
@@ -522,12 +526,15 @@ line *newln(char *s) {
 }
 
 line *insln(buf *b, line *c, line *l) {
+	line *e = l;
+	while(e->n) e = e->n; // e to the end of the l list
+
 	if(c->n) {
-		l->n = c->n;
-		c->n->p = l;
+		e->n = c->n;
+		c->n->p = e;
 	} else {
-		l->n = NULL;
-		b->last = l;
+		e->n = NULL;
+		b->last = e;
 	}
 	l->p = c;
 	c->n = l;
@@ -561,14 +568,14 @@ int e_new_line(buf *b) {
 int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 	if(b->undos) {
 		jmpln(b, b->undos->ln);
-		b->undos->l->n = b->cur->n;
-		b->undos->l->p = b->cur->p;
 
 		if(b->undos->type == CHANGED) {
 			delln(b, b->cur);
 			b->cur = inslnb(b, b->cur, b->undos->l);
-		} else if(b->undos->type == DELETED) {
-			b->cur = inslnb(b, b->cur, b->undos->l);
+		} else if(b->undos->type == DELETED) { // TODO: fix for `dj` at EOF
+			m_prevln(b);
+			b->cur = insln(b, b->cur, b->undos->l);
+			drawbuf(b);
 		}
 
 		b->linepos = b->undos->offset;
