@@ -521,7 +521,7 @@ line *newln(char *s) {
 	return l;
 }
 
-line *insln(buf *b, line *c, line *l) { // c is the line to insert after, s is the new line
+line *insln(buf *b, line *c, line *l) {
 	if(c->n) {
 		l->n = c->n;
 		c->n->p = l;
@@ -534,7 +534,7 @@ line *insln(buf *b, line *c, line *l) { // c is the line to insert after, s is t
 	return l;
 }
 
-line *inslnb(buf *b, line *c, line *l) { // p is the line to insert before, s is the new line
+line *inslnb(buf *b, line *c, line *l) {
 	if(c->p) {
 		l->p = c->p;
 		c->p->n = l;
@@ -544,6 +544,8 @@ line *inslnb(buf *b, line *c, line *l) { // p is the line to insert before, s is
 	}
 	l->n = c;
 	c->p = l;
+	if(b->scroll == c)
+		b->scroll = l;
 	return l;
 }
 
