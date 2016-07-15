@@ -1,11 +1,8 @@
-* remove copy paste buffer and use xsel
 * make insert mode work
     * fix newline in middle of line
     * fix delete in middle of line (on text that wasn't in current insert)
 * make undo work
     * handle multi-line deletion
-    * maybe rethink the entire undo scheme... (i don't think it'll work right now - remember line's may not exist in the future so undo->p might point to junk)
-* add yanking
 * start eating your dogfood boi
 * fix multiple buffers
 * pipe out to tmux for layout
@@ -16,3 +13,5 @@
     * don't make pipes wiggle screen
     * use states
     * cleanup mem leaks
+
+* https://git.busybox.net/busybox/tree/editors/vi.c

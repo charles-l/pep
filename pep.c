@@ -56,6 +56,7 @@ typedef struct {
 
 int is_eolch(char c);
 line *dupln(line *l);
+void freeln(line **l);
 int delln(buf *b, line *l);
 
 char curch(buf *b);
@@ -70,7 +71,9 @@ int getvlnpos(char *s, int pos);
 int jmpln(buf *b, int i);
 int swap(line **s, line **e);
 
+char *chomp(char *s);
 char *findsubstr(char *s, char *sub);
+char *joinstr(char *a, char *b);
 line *lncpy(line *start, line *end);
 void pushundo(buf *b, line *start, line *end, int offset, enum undo_t t);
 
@@ -86,8 +89,7 @@ int m_smartbol(buf *b);
 int m_prevln(buf *b);
 int m_nextln(buf *b);
 int m_boscr(buf *b);
-int m_eoscr(buf *b);
-int m_nextscr(buf *b);
+int m_eoscr(buf *b); int m_nextscr(buf *b);
 int m_prevscr(buf *b);
 
 int e_join(buf *b, line *start, line *end, int _a, int _b);
@@ -156,6 +158,12 @@ line *dupln(line *l) {
 	return r;
 }
 
+void freeln(line **l) {
+	free((*l)->s);
+	free(*l);
+	*l = NULL;
+}
+
 int delln(buf *b, line *l) {
 	if(!l || b->first == b->last) return 0;
 	if(l == b->first) b->first = b->first->n;
@@ -166,8 +174,7 @@ int delln(buf *b, line *l) {
 	if(l == b->cur)    b->cur    = b->cur->n ? b->cur->n : b->cur->p;
 	if(l == b->scroll) b->scroll = b->scroll->n ? b->scroll->n : b->scroll->p;
 
-	free(l->s);
-	free(l); l = NULL;
+	freeln(&l);
 	m_bol(b);
 	return 1;
 }
@@ -232,6 +239,12 @@ int swap(line **s, line **e) {
 	return 0;
 }
 
+char *chomp(char *s) { // destructive
+	char *r = s + strlen(s);
+	while(r != s && isspace((--r)[0])) r[0] = '\0';
+	return s;
+}
+
 char *findsubstr(char *s, char *sub) {
 	size_t subn = strlen(sub);
 	size_t sn = strlen(s);
@@ -242,6 +255,14 @@ char *findsubstr(char *s, char *sub) {
 		if(sub[i + 1] == '\0') return s; // matched til end of substr
 	}
 	return findsubstr(s + 1, sub);
+}
+
+char *joinstr(char *a, char *b) { // destructive
+	size_t i = strlen(chomp(a)) + strlen(chomp(b));
+	char *s = malloc(i + 1);
+	strcpy(s, a);
+	strcat(s, b);
+	return s;
 }
 
 line *lncpy(line *start, line *end) {
@@ -547,6 +568,7 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 
 buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
 	buf *b = newbuf();
+	freeln(&b->first);
 	char s[LINE_MAX];
 	if(f != NULL)
 		for(int i = 0; fgets(s, LINE_MAX, f) != NULL; i++) {
@@ -572,6 +594,7 @@ buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
 // that'll be the easiest thing to do.
 buf *loadfilebuf(const char *fname) {
 	FILE *f = fopen(fname, "r");
+	if(!f) return NULL;
 	buf *b = readbuf(f, fname);
 	if (f) fclose(f);
 	return b;
@@ -1066,6 +1089,10 @@ int main(int argc, char **argv) {
 	scrollok(win, 1);
 
 	buf *b = argc < 2 ? newbuf() : loadfilebuf(argv[1]);
+	if(!b) {
+		endwin();
+		QERROR("failed to load/create file buf");
+	}
 
 	cmdmode(b);
 
