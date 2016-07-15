@@ -2,3 +2,4 @@ pep
 *.o
 *.swp
 tags
+*.log

@@ -160,6 +160,7 @@ line *dupln(line *l) {
 }
 
 void freeln(line **l) {
+	if(!(*l)) return;
 	free((*l)->s);
 	free(*l);
 	*l = NULL;
@@ -566,9 +567,8 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 
 		b->linepos = b->undos->offset;
 
-		undo *u = b->undos;
-		b->undos = b->undos->n;
-		free(u);
+		free(b->undos);
+		b->undos = b->undos->n; // unsafeness for cleverness sake (it's not multithreaded - so meh)
 	}
 	return 0;
 }
@@ -619,16 +619,15 @@ void writefilebuf(buf *b, const char *fname) {
 }
 
 void freebuf(buf **b) {
-	if(!*b) return; // don't try to free NULL
+	if(!b || !(*b)) return; // don't try to free NULL
 	while((*b)->first != NULL) {
 		free((*b)->first->s);
 		free((*b)->first);
 		(*b)->first = (*b)->first->n;
 	}
 	while((*b)->undos != NULL) {
-		free((*b)->undos->l->s);
-		free((*b)->undos->l);
-		free((*b)->undos);
+		freeln(&((*b)->undos->l));
+		//free((*b)->undos);
 		(*b)->undos = (*b)->undos->n;
 	}
 	*b = NULL;
@@ -1076,12 +1075,12 @@ void insmode(buf *b) {
 }
 
 void quit(buf *b) {
+	endwin();
 	freebuf(&b);
 	freebuf(&search);
 	delwin(win);
 	delwin(linenum);
 	delwin(prompt);
-	endwin();
 	exit(0);
 }
 
