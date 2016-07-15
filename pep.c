@@ -551,6 +551,10 @@ line *inslnb(buf *b, line *c, line *l) {
 
 int e_new_line(buf *b) {
 	b->cur = insln(b, b->cur, newln(""));
+	if(getcurlnn(b) == LINES - 1) {
+		b->scroll = b->scroll->n;
+		scrl(1);
+	}
 	return 0;
 }
 
@@ -629,7 +633,6 @@ void freebuf(buf **b) {
 		(*b)->first = (*b)->first->n;
 	}
 	while((*b)->undos) {
-		puts("HI");
 		freeln(&((*b)->undos->l));
 		undo *u = (*b)->undos;
 		(*b)->undos = (*b)->undos->n;
