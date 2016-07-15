@@ -553,7 +553,7 @@ int e_new_line(buf *b) {
 }
 
 int e_undo(buf *b, line *start, line *end, int _a, int _b) {
-	if(b->undos != NULL) {
+	if(b->undos) {
 		jmpln(b, b->undos->ln);
 		b->undos->l->n = b->cur->n;
 		b->undos->l->p = b->cur->p;
@@ -579,8 +579,8 @@ buf *readbuf(FILE *f, const char *fname) { // read from a file pointer
 	buf *b = newbuf();
 	freeln(&b->first);
 	char s[LINE_MAX];
-	if(f != NULL)
-		for(int i = 0; fgets(s, LINE_MAX, f) != NULL; i++) {
+	if(f)
+		for(int i = 0; fgets(s, LINE_MAX, f); i++) {
 			line *l = malloc(sizeof(line));
 			l->s = chomp(strndup(s, strlen(s) - 1)); // chomp after removing known newline
 			if(i == 0) {
@@ -612,22 +612,22 @@ buf *loadfilebuf(const char *fname) {
 void writefilebuf(buf *b, const char *fname) {
 	FILE *f = fopen(fname, "w");
 	if(f == NULL) ERROR("unable to open file for writing");
-	for(line *i = b->first; i != NULL; i = i->n) {
+	for(line *i = b->first; i; i = i->n) {
 		fprintf(f, "%s\n", i->s);
 	}
 	fclose(f);
 }
 
 void freebuf(buf **b) {
-	if(!b || !(*b)) return; // don't try to free NULL
-	while((*b)->first != NULL) {
+	if(!(*b)) return; // don't try to free NULL
+	while((*b)->first) {
 		free((*b)->first->s);
 		free((*b)->first);
 		(*b)->first = (*b)->first->n;
 	}
-	while((*b)->undos != NULL) {
+	while((*b)->undos) {
 		freeln(&((*b)->undos->l));
-		//free((*b)->undos);
+		free((*b)->undos);
 		(*b)->undos = (*b)->undos->n;
 	}
 	*b = NULL;
@@ -659,7 +659,7 @@ void drawbuf(buf *b) {
 	line *l = b->scroll;
 	int i = 0;
 	int lnn = getlnn(b, b->scroll);
-	for(; l != NULL; l = l->n, i++) {
+	for(; l; l = l->n, i++) {
 		if(i > LINES - 2) break;
 		wmove(win, i, 0);
 		drawstr(win, l->s);
