@@ -160,7 +160,7 @@ WINDOW *win;
 WINDOW *linenum;
 WINDOW *prompt;
 buf *search = NULL; // search buffer
-// TODO: add alphabet registers
+int motion_chain = 0;
 
 int is_eolch(char c) {
 	return c == '\0' || c == '\n';
@@ -323,7 +323,7 @@ int m_nextchf(buf *b) {
 }
 
 int m_nextwrd(buf *b) {
-	if(m_nextch(b))
+	if(m_nextchf(b))
 		if(!isspace(curch(b))
 				&& ((isspace(prevch(b)) && !isspace(curch(b)))
 					|| (isalpha(prevch(b)) && !isalpha(curch(b)))
@@ -332,9 +332,11 @@ int m_nextwrd(buf *b) {
 		else
 			return m_nextwrd(b);
 	else {
-		m_nextln(b);
-		m_bol(b);
-		return 1;
+		if(!motion_chain) {
+			m_nextln(b);
+			m_bol(b);
+			return 1;
+		}
 	}
 }
 
@@ -796,6 +798,7 @@ void promptcmd(buf *b) { // TODO: refactor
 //// INPUT HANDLERS / DRAWS ////
 
 #define EDIT_MOTION(edit, motion)\
+	motion_chain = 1; \
 	ss = b->linepos; s = b->cur;	\
 d = motion;			\
 ee = b->linepos; e = b->cur;	\
@@ -848,6 +851,7 @@ void cmdmode(buf *b) {
 	int r;
 	while(1) {
 		drawbuf(b);
+		motion_chain = 0;
 		switch(c = wgetch(win)) {
 			case 'd':
 				c = wgetch(win);
