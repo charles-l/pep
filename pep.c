@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <ncurses.h>
 #include <unistd.h>
+#include <assert.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -27,7 +28,7 @@
 #define CHOPN(s) s[strlen(s)-1]='\0'    // chop newline
 #define COLOR_GRAY 8
 #define COLPAIR(fg, bg) fg, bg		// hehehe abusing macro preprocessor
-#define MOD(buf) buf->flags &= MODIFIED // mark a buffer as modified
+#define MOD(buf) buf->flags |= MODIFIED // mark a buffer as modified
 #define ISMOD(buf) \
 		(buf->flags & MODIFIED) // check if a buffer was modified
 #define CANMOD(buf) !(buf->flags & RO) 	// check if buffer is mutable
@@ -61,7 +62,7 @@ typedef struct {
 	line *last;       		// last line in file
 	line *scroll;     		// top of current scroll position
 	int linepos;      		// byte position on line
-	int flags;			// file flags(RO, MODIFIED, etc)
+	int flags;			// file flag (set by buf_flags)
 } buf;
 
 int is_eolch(char c);
@@ -1063,7 +1064,7 @@ buf *newbuf(void) {
 	b->linepos = 0;
 	b->undos = NULL;
 	b->filename = NULL;
-	b->flags = 0;
+	b->flags = 0; // zero out flags
 	return b;
 }
 
