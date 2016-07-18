@@ -1073,12 +1073,7 @@ void insmode(buf *b) {
 	while((c = wgetch(win)) != KEY_ESC) {
 		int l = getcurlnn(b);
 		if(c == KEY_BS) {
-			sdsrange(r, 0, sdslen(r));
-			m_prevln(b);
-			int m = strlen(b->cur->s);
-			e_join(b, NULL, NULL, 0, 0);
-			l--;
-			b->linepos = m;
+			sdslen(r) > 1 ?  sdsrange(r, 0, -2) : sdsclear(r);
 		} else if (c == '\n') {
 			END_INSERT;
 			e_new_line(b);
