@@ -10,10 +10,10 @@
 #include <ctype.h>
 #include <limits.h>
 #include <sys/wait.h>
+#include "sds.h"
 
 // load config
 #include "config.h"
-#include "sds.h"
 
 /////
 
@@ -27,6 +27,10 @@
 #define CHOPN(s) s[strlen(s)-1]='\0'    // chop newline
 #define COLOR_GRAY 8
 #define COLPAIR(fg, bg) fg, bg		// hehehe abusing macro preprocessor
+#define MOD(buf) buf->flags &= MODIFIED // mark a buffer as modified
+#define ISMOD(buf) \
+		(buf->flags & MODIFIED) // check if a buffer was modified
+#define CANMOD(buf) !(buf->flags & RO) 	// check if buffer is mutable
 
 typedef struct line { 			// double linked list
 	char *s;
@@ -44,6 +48,11 @@ typedef struct undo { 			// saves an entire line in the undo list
 	enum undo_t type;
 } undo;
 
+enum buf_flags {
+	MODIFIED = 1 << 0,
+	RO 	 = 1 << 1,
+};
+
 typedef struct {
 	const char *filename;		// buffers filename
 	undo *undos;  			// linked list of undos
@@ -52,6 +61,7 @@ typedef struct {
 	line *last;       		// last line in file
 	line *scroll;     		// top of current scroll position
 	int linepos;      		// byte position on line
+	int flags;			// file flags(RO, MODIFIED, etc)
 } buf;
 
 int is_eolch(char c);
@@ -496,7 +506,6 @@ int e_paste(buf *b) {
 		m_nextln(b);
 	}
 	char *n = insertstr(b->cur->s, p->first->n->s, b->linepos + 1);
-	free(b->cur->s);
 	b->cur->s = n;
 	return 0;
 }
@@ -733,21 +742,16 @@ int searchprev(buf *b) {
 
 void filestatus(buf *b) {
 	char s[STATUS_LENGTH];
-	strncat(s, "editing ", STATUS_LENGTH);
+	s[0] = '\0';
 	strncat(s, b->filename, STATUS_LENGTH);
+	if(ISMOD(b)) strncat(s, "*", STATUS_LENGTH);
 	showmsg(s);
 }
 
 void showmsg(char *s) {
-	wclrtoeol(prompt);
+	wclear(prompt);
 	waddstr(prompt, s);
-	wrefresh(win);
-}
-
-#define showmsgf(s, ...) { \
-	char msg[256]; \
-	sprintf(msg, s, __VA_ARGS__); \
-	showmsg(msg); \
+	wrefresh(prompt);
 }
 
 char *readprompt(char *pfmt) {
@@ -917,7 +921,7 @@ void cmdmode(buf *b) {
 				pipebuf(b, i, p_replace);
 				free(i);
 				break;
-			case '/':
+			case '/': // TODO: move to motion
 				i = readprompt("/");
 				sprintf(com, SEARCH_COMMAND, i);
 				free(i);
@@ -943,8 +947,11 @@ void cmdmode(buf *b) {
 			default:
 				// TODO: properly handle numbers
 				if(do_motion(b, c)) // assume it's a motion
-					break;
+					goto cleanup;
 		}
+		MOD(b);
+		// TODO: clean this up and remove goto
+cleanup:
 		if(curch(b) == '\0') m_prevch(b); // correct the location if we need to
 	}
 }
@@ -1036,13 +1043,14 @@ buf *pipebuf(buf *b, char *cmd, buf * (*fun)(buf *b, FILE *f)) {
 	}
 }
 
-char *insertstr(char *s, char *i, int p) {
+char *insertstr(char *s, char *i, int p) { // NOTE: frees s
 	size_t l = strlen(s) + strlen(i);
 	char *n = malloc(l);
 	strncpy(n, s, p);
 	n[p] = '\0';
 	strcat(n, i);
 	strcat(n, s + p);
+	free(s);
 	return n;
 }
 
@@ -1055,6 +1063,7 @@ buf *newbuf(void) {
 	b->linepos = 0;
 	b->undos = NULL;
 	b->filename = NULL;
+	b->flags = 0;
 	return b;
 }
 
@@ -1062,7 +1071,6 @@ buf *newbuf(void) {
 // duplicated stuff in the insert function
 #define END_INSERT \
 	char *n = insertstr(b->cur->s, r, b->linepos);	\
-free(b->cur->s);		 		\
 b->cur->s = n;					\
 b->linepos = b->linepos + strlen(r) - 1;	\
 sdsfree(r);
