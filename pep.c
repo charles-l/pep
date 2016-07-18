@@ -23,15 +23,17 @@
 #define KEY_ESC 0x1B			// escape keycode
 #define KEY_BS 0x7F    			// backspace keycode
 #define KEY_CF 6			// ctrl-f keycode
+#define KEY_CG 7			// ctrl-g keycode
 #define KEY_CB 2			// ctrl-b keycode
 
 #define CHOPN(s) s[strlen(s)-1]='\0'    // chop newline
 #define COLOR_GRAY 8
 #define COLPAIR(fg, bg) fg, bg		// hehehe abusing macro preprocessor
-#define MOD(buf) buf->flags |= MODIFIED // mark a buffer as modified
-#define ISMOD(buf) \
-		(buf->flags & MODIFIED) // check if a buffer was modified
-#define CANMOD(buf) !(buf->flags & RO) 	// check if buffer is mutable
+
+// set/unset/check buffer flags
+#define SETFLAG(buf, flag) buf->flags |= flag
+#define UNSETFLAG(buf, flag) buf->flags &= ~(flag)
+#define ISFLAG(buf, flag) (buf->flags & flag)
 
 typedef struct line { 			// double linked list
 	char *s;
@@ -745,7 +747,8 @@ void filestatus(buf *b) {
 	char s[STATUS_LENGTH];
 	s[0] = '\0';
 	strncat(s, b->filename, STATUS_LENGTH);
-	if(ISMOD(b)) strncat(s, "*", STATUS_LENGTH);
+	if(ISFLAG(b, MODIFIED)) strncat(s, "*", STATUS_LENGTH);
+	sprintf(s, "%s (%i%%)", s, (int) (100 * ((float) getlnn(b, b->cur) / getlnn(b, b->last))));
 	showmsg(s);
 }
 
@@ -783,6 +786,7 @@ void promptcmd(buf *b) { // TODO: refactor
 			b->filename = n;
 			writefilebuf(b, n);
 		}
+		UNSETFLAG(b, MODIFIED);
 	}
 
 	free(com);
@@ -884,15 +888,11 @@ void cmdmode(buf *b) {
 				break;
 			case 'x':
 				EDIT_MOTION(e_del, m_nextchf(b));
-				break;
-			case 'J':
+				break; case 'J':
 				e_join(b, NULL, NULL, 0, 0);
 				break;
 			case 'u':
 				e_undo(b, NULL, NULL, 0, 0);
-				break;
-			case ' ':
-				filestatus(b);
 				break;
 			case 'o':
 				e_new_line(b);
@@ -911,6 +911,7 @@ void cmdmode(buf *b) {
 				break;
 			case ':':
 				promptcmd(b);
+				goto cleanup;
 				break;
 			case '|':
 				i = readprompt("|");
@@ -937,6 +938,10 @@ void cmdmode(buf *b) {
 			case 'N':
 				searchprev(b);
 				break;
+			case KEY_CG:
+				filestatus(b);
+				goto cleanup;
+				break;
 			case 'Z':
 				switch(wgetch(win)) {
 					case 'Q':
@@ -950,7 +955,7 @@ void cmdmode(buf *b) {
 				if(do_motion(b, c)) // assume it's a motion
 					goto cleanup;
 		}
-		MOD(b);
+		SETFLAG(b, MODIFIED);
 		// TODO: clean this up and remove goto
 cleanup:
 		if(curch(b) == '\0') m_prevch(b); // correct the location if we need to
