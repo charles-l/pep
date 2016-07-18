@@ -595,6 +595,7 @@ int e_undo(buf *b, line *start, line *end, int _a, int _b) {
 		undo *u = b->undos;
 		b->undos = b->undos->n; // unsafeness for cleverness sake (it's not multithreaded - so meh)
 		free(u);
+		return 1;
 	}
 	return 0;
 }
@@ -860,14 +861,6 @@ void cmdmode(buf *b) {
 					EDIT_MOTION(e_del, do_motion(b, c));
 				}
 				break;
-			case 'y':
-				c = wgetch(win);
-				if(c == 'y') {
-					yankln(b, b->cur);
-				} else {
-					EDIT_MOTION(e_yank, do_motion(b, c));
-				}
-				break;
 			case 'p':
 				e_paste(b);
 				break;
@@ -891,9 +884,6 @@ void cmdmode(buf *b) {
 				break; case 'J':
 				e_join(b, NULL, NULL, 0, 0);
 				break;
-			case 'u':
-				e_undo(b, NULL, NULL, 0, 0);
-				break;
 			case 'o':
 				e_new_line(b);
 				m_bol(b);
@@ -902,16 +892,6 @@ void cmdmode(buf *b) {
 			case 'O':
 				b->cur = inslnb(b, b->cur, newln(""));
 				e_insert(b);
-				break;
-			case 'H':
-				m_boscr(b);
-				break;
-			case 'L':
-				m_eoscr(b);
-				break;
-			case ':':
-				promptcmd(b);
-				goto cleanup;
 				break;
 			case '|':
 				i = readprompt("|");
@@ -923,6 +903,28 @@ void cmdmode(buf *b) {
 				pipebuf(b, i, p_replace);
 				free(i);
 				break;
+			case 'y':
+				c = wgetch(win);
+				if(c == 'y') {
+					yankln(b, b->cur);
+				} else {
+					EDIT_MOTION(e_yank, do_motion(b, c));
+				}
+				goto cleanup;
+				break;
+			case 'u':
+				if(!e_undo(b, NULL, NULL, 0, 0) || !b->undos)
+					UNSETFLAG(b, MODIFIED);
+				goto cleanup;
+				break;
+			case 'H': // TODO: move to motions
+				m_boscr(b);
+				goto cleanup;
+				break;
+			case 'L':
+				m_eoscr(b);
+				goto cleanup;
+				break;
 			case '/': // TODO: move to motion
 				i = readprompt("/");
 				sprintf(com, SEARCH_COMMAND, i);
@@ -931,12 +933,19 @@ void cmdmode(buf *b) {
 				search = pipebuf(b, com, p_hiddenbuf);
 				searchnext(b, b->cur);
 				delln(search, search->first); // remove blank newline (it's been jumped now)
+				goto cleanup;
 				break;
 			case 'n':
 				searchnext(b, NULL);
+				goto cleanup;
 				break;
 			case 'N':
 				searchprev(b);
+				goto cleanup;
+				break;
+			case ':':
+				promptcmd(b);
+				goto cleanup;
 				break;
 			case KEY_CG:
 				filestatus(b);
