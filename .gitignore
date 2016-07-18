@@ -3,3 +3,4 @@ pep
 *.swp
 tags
 *.log
+test.c
