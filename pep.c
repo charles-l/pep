@@ -13,7 +13,7 @@
 
 // load config
 #include "config.h"
-#include "astr.h"
+#include "sds.h"
 
 /////
 
@@ -465,10 +465,10 @@ int e_del(buf *b, line *start, line *end, int s, int e) {
 
 int yankln(buf *b, line *l) {
 	buf *y = newbuf();
-	astr_t *s = newstr("\n", 1);
-	appendstr(s, l->s);
-	insln(y, y->first, newln(s->ss));
-	freestr(s);
+	sds s = sdsnew("\n");
+	sdscat(s, l->s);
+	insln(y, y->first, newln(s));
+	sdsfree(s);
 	delln(y, y->first); // remove blank line
 	pipebuf(y, "xsel -ib", p_none);
 	freebuf(&y);
@@ -1061,18 +1061,19 @@ buf *newbuf(void) {
 // I hate this macro. It's a hcak in place to prevent
 // duplicated stuff in the insert function
 #define END_INSERT \
-	char *n = insertstr(b->cur->s, r->ss, b->linepos);	\
+	char *n = insertstr(b->cur->s, r, b->linepos);	\
 free(b->cur->s);		 		\
 b->cur->s = n;					\
-b->linepos = b->linepos + strlen(r->ss) - 1;	\
-freestr(r);
+b->linepos = b->linepos + strlen(r) - 1;	\
+sdsfree(r);
 
 void insmode(buf *b) {
-	astr_t *r = newstr("", 128); // auto grow string
+	sds r = sdsnew("");
 	char c;
 	while((c = wgetch(win)) != KEY_ESC) {
 		int l = getcurlnn(b);
-		if(c == KEY_BS && !remch(r)) {
+		if(c == KEY_BS) {
+			sdsrange(r, 0, sdslen(r));
 			m_prevln(b);
 			int m = strlen(b->cur->s);
 			e_join(b, NULL, NULL, 0, 0);
@@ -1084,14 +1085,16 @@ void insmode(buf *b) {
 			m_bol(b);
 			drawbuf(b); // force redraw (since we're jumping right into the next insert mode)
 			return insmode(b);
-		} else
-			appendch(r, c);
+		} else {
+			char b[2] = {c, '\0'}; // string with new character
+			sdscat(r, b);
+		}
 		wmove(win, l, 0);
 		wclrtoeol(win);
 		drawnstr(win, b->cur->s, b->linepos);
-		drawstr(win, r->ss);
+		drawstr(win, r);
 		drawstr(win, b->cur->s + b->linepos);
-		wmove(win, l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r->ss, r->l));
+		wmove(win, l, getvlnpos(b->cur->s, b->linepos) + getvlnpos(r, sdslen(r)));
 		wrefresh(win);
 	}
 	END_INSERT;

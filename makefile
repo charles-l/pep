@@ -5,7 +5,7 @@ CFLAGS=-g
 LDFLAGS=-lncurses
 
 BIN=pep
-SOURCES=pep.c astr.c
+SOURCES=pep.c sds.c
 OBJS=$(SOURCES:.c=.o)
 
 $(BIN): $(OBJS)
