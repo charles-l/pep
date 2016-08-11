@@ -1,23 +1,14 @@
-CC=gcc
-PREFIX=/usr/local/
-
-CFLAGS=-g
-LDFLAGS=-lncurses
-
+CSC=csc
 BIN=pep
-SOURCES=pep.c sds.c
-OBJS=$(SOURCES:.c=.o)
+SOURCE=pep.scm
+PREFIX=/usr/local
 
-$(BIN): $(OBJS)
-	@echo LD $(OBJS)
-	@cc -o $(BIN) $(CFLAGS) $(LDFLAGS) $(OBJS)
-
-.c.o:
-	@echo CC $<
-	@$(CC) -o $@ -c $< $(CFLAGS)
+$(BIN):
+	@echo CSC $(BIN)
+	@csc $(SOURCE)
 
 clean:
-	@rm $(BIN) $(OBJS)
+	@rm $(BIN)
 
 install: $(BIN)
 	@install $(BIN) $(PREFIX)/bin
