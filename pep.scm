@@ -1,29 +1,6 @@
-(use ncurses srfi-1 srfi-13 regex)
+(use ncurses srfi-1 srfi-13 regex protobj)
 
 ;;; util - because this crap isn't implemented by default???
-
-(define-syntax iter ;; IM SO META IT'LL BLOW UR MIND
-  (syntax-rules ()
-    ((iter name op)
-     (define-syntax name
-       (syntax-rules ()
-         ((name var)
-          (set! var (op var 1)))
-         ((name var val)
-          (set! var (op var val))))))))
-
-(define-syntax (assoc-ref)
-  (syntax-rules ()
-    ((assoc-ref alist key)
-     (cadr (assoc key alist)))))
-
-(define-syntax (assoc-set!)
-  (syntax-rules ()
-    ((assoc-set! alist key val)
-     (set-cdr! (assoc key *buf*) (list value)))))
-
-(iter inc! +)
-(iter dec! -)
 
 (define (clamp low up val)
   (max low (min up val)))
@@ -36,33 +13,26 @@
 
 ;;;
 
-(define (make-buffer lines)
-  `((cursors '()) (mode 'command) (lines ,lines) (line-pos 0) (line 0) (scroll 0)))
-
-(define (make-cursor line linepos scroll)
-  `((line ,line) (linepos ,linepos)))
+(define *buf* (%)) ; create main buffer
+(! *buf*
+   (cursors '())
+   (mode 'command)
+   (lines #("blah" "a" "b" "c" "some words on a line" "\ttabbed"))
+   (line-pos 0)
+   (line 0)
+   (scroll 0))
 
 (define tabstop 3)
 (define tabstring (list->string (make-list tabstop #\space)))
-(define *buf* (make-buffer #("blah" "a" "b" "c" "some words on a line" "\ttabbed"))) ;; main buffer
-
-(define (state-ref key)
-  (cadr (assoc key *buf*)))
-
-(define (state-set! key value)
-  (set-cdr! (assoc key *buf*) (list value)))
-
-(define state (getter-with-setter state-ref
-                                  state-set!))
 
 (define (cur-line-pos)
-  (state 'line-pos))
+  (? *buf* line-pos))
 
 (define (cur-line)
-  (state 'line))
+  (? *buf* line))
 
 (define (cur-line-s)
-  (vector-ref (state 'lines) (cur-line)))
+  (vector-ref (? *buf* lines) (cur-line)))
 
 (define (cur-char)
   (string-ref (cur-line-s) (cur-line-pos)))
@@ -80,9 +50,9 @@
 
 (define (draw-line i)
   (mvwaddstr (stdscr) i 0
-             (let ((offi (+ (state 'scroll) i)))
-               (if (< offi (vector-length (state 'lines)))
-                 (proper-line (vector-ref (state 'lines) offi))
+             (let ((offi (+ (? *buf* scroll) i)))
+               (if (< offi (vector-length (? *buf* lines)))
+                 (proper-line (vector-ref (? *buf* lines) offi))
                  "~"))))
 
 (define (begin-word?)
@@ -102,29 +72,29 @@
 
 (define (m-prev-line)
   (if (> (cur-line) 0)
-    (dec! (state 'line))
+    (! *buf* line (- (? *buf* line) 1))
     #f))
 
 (define (m-next-line)
-  (if (< (cur-line) (- (vector-length (state 'lines)) 1))
-    (inc! (state 'line))
+  (if (< (cur-line) (- (vector-length (? *buf* lines)) 1))
+    (! *buf* line (+ (? *buf* line) 1))
     #f))
 
 (define (m-next-char)
   (if (p-eol?)
     #f
-    (inc! (state 'line-pos))))
+    (! *buf* line-pos (+ (? *buf* line-pos) 1))))
 
 (define (m-prev-char)
   (if (bol?)
     #f
-    (dec! (state 'line-pos))))
+    (! *buf* line-pos (- (? *buf* line-pos) 1))))
 
 (define (m-eol)
-  (set! (state 'line-pos) (string-length (cur-line-s))))
+  (! *buf* line-pos (string-length (cur-line-s))))
 
 (define (m-bol)
-  (set! (state 'line-pos) 0))
+  (! *buf* line-pos 0))
 
 (define (m-word dir)
   (call/cc
@@ -139,12 +109,9 @@
                  (loop)))))))
 
 (define (clamp-line)
-  (set! (state 'line-pos) (clamp 0 (- (string-length (cur-line-s)) 1) (state 'line-pos))))
+  (! *buf* line-pos (clamp 0 (- (string-length (cur-line-s)) 1) (? *buf* line-pos))))
 
 ;;;;
-
-;; create initial cursor (not used yet)
-(set! (state 'cursors) (cons (state 'cursors) (make-cursor 0 0 0)))
 
 (initscr)
 (cbreak)

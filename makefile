@@ -1,11 +1,10 @@
-CSC=csc
 BIN=pep
-SOURCE=pep.scm
+SOURCES=pep.scm
 PREFIX=/usr/local
 
-$(BIN):
-	@echo CSC $(BIN)
-	@csc $(SOURCE)
+#TODO: write proper compile code
+$(BIN): $(SOURCES)
+	@csc $(SOURCES) -o $(BIN)
 
 clean:
 	@rm $(BIN)
