@@ -8,45 +8,103 @@
 (define (for-n start stop fn)
   (map (cut fn <>) (iota (- stop start) start)))
 
-(define (make-sym-eval . args) ; combines symbols, then evals the resulting function name
-  ((eval (apply symbol-append args))))
+(define (proper-line line) ; substitute weird characters out of a line
+  (string-substitute "\t" tabstring line))
 
 ;;;
+
+(define tabstop 3)
+(define tabstring (list->string (make-list tabstop #\space)))
 
 (define *buf* (%)) ; create main buffer
 (! *buf*
    (cursors '())
    (mode 'command)
+   (dirty-screen #f) ; requires a redraw
    (lines #("blah" "a" "b" "c" "some words on a line" "\ttabbed"))
-   (line-pos 0)
-   (line 0)
    (scroll 0))
 
-(define tabstop 3)
-(define tabstring (list->string (make-list tabstop #\space)))
-
-(define (cur-line-pos)
-  (? *buf* line-pos))
-
-(define (cur-line)
-  (? *buf* line))
-
-(define (cur-line-s)
-  (vector-ref (? *buf* lines) (cur-line)))
-
-(define (cur-char)
-  (string-ref (cur-line-s) (cur-line-pos)))
-
-(define (prev-cur-char)
-  (if (> (cur-line-pos) 0)
-    (string-ref (cur-line-s) (- (cur-line-pos) 1))
-    #f))
-
-(define (proper-line line) ;; line with tabs taken into account (use *only* for drawing)
-  (string-substitute "\t" tabstring line))
-
-(define (proper-line-pos) ;; calculates the linepos for the cursor
-  (string-length (proper-line (string-take (cur-line-s) (cur-line-pos))))) ;; lineloc with tabs taken into account (use *only* for drawing)
+(define (make-cursor buf)
+  (let ((c (%)))
+    (! c
+       (buffer buf)
+       (line-pos 0)
+       (line 0)
+       (buf-lines
+         (lambda (self)
+           (? (? self buffer) lines)))
+       (cur-line-s
+         (lambda (self)
+           (vector-ref (@ self buf-lines) (? self line))))
+       (cur-char
+         (lambda (self)
+           (string-ref (@ self cur-line-s) (? self line-pos))))
+       (prev-char
+         (lambda (self)
+           (if (> (? self line-pos) 0)
+             (string-ref (@ self cur-line-s) (- (? self line-pos) 1)))))
+       (proper-line-pos
+         (lambda (self line)
+           (string-length
+             (proper-line (string-take (@ self cur-line-s) (? self line-pos))))))
+       (begin-word?
+         (lambda (self)
+           (and
+             (or (@ self bol?)
+                 (char-whitespace? (@ self prev-char)))
+             (not (char-whitespace? (@ self cur-char))))))
+       (eol?
+         (lambda (self)
+           (>= (? self line-pos) (- (string-length (@ self cur-line-s)) 1))))
+       (p-eol?
+         (lambda (self)
+           (>= (? self line-pos) (string-length (@ self cur-line-s)))))
+       (bol?
+         (lambda (self)
+           (<= (? self line-pos) 0)))
+       (m-prev-line
+         (lambda (self)
+           (if (> (? self line) 0)
+             (! self line (- (? self line) 1))
+             #f)))
+       (m-next-line
+         (lambda (self)
+           (if (< (? self line) (- (vector-length (@ self buf-lines)) 1))
+             (! self line (+ (? self line) 1))
+             #f)))
+       (m-next-char
+         (lambda (self)
+           (if (@ self p-eol?)
+             #f
+             (! self line-pos (+ (? self line-pos) 1)))))
+       (m-prev-char
+         (lambda (self)
+           (if (@ self bol?)
+             #f
+             (! self line-pos (- (? self line-pos) 1)))))
+       (m-eol
+         (lambda (self)
+           (! self line-pos (string-length (@ self cur-line-s)))))
+       (m-bol
+         (lambda (self)
+           (! self line-pos 0)))
+       (m-word
+         (lambda (self dir)
+           (call/cc
+             (let ((dir-func (if (eq? dir 'next) (? self m-next-char) (? self m-prev-char))))
+               (lambda (break)
+                 (if (@ self begin-word?) ;; bump past beginning of word if we're currently on one
+                   (if (not (dir-func self))
+                     (break #f)))
+                 (let loop ()
+                   (if (not (@ self begin-word?))
+                     (begin (if (not (dir-func self))
+                              (break #f))
+                            (loop)))))))))
+       (clamp-to-line
+         (lambda (self)
+           (! self line-pos (clamp 0 (- (string-length (@ self cur-line-s)) 1) (? self line-pos))))))
+    c))
 
 (define (draw-line i)
   (mvwaddstr (stdscr) i 0
@@ -55,98 +113,45 @@
                  (proper-line (vector-ref (? *buf* lines) offi))
                  "~"))))
 
-(define (begin-word?)
-  (and
-    (or (bol?)
-        (char-whitespace? (prev-cur-char)))
-    (not (char-whitespace? (cur-char)))))
-
-(define (eol?)
-  (>= (cur-line-pos) (- (string-length (cur-line-s)) 1)))
-
-(define (p-eol?) ;; one past eol
-  (>= (cur-line-pos) (string-length (cur-line-s))))
-
-(define (bol?)
-  (<= (cur-line-pos) 0))
-
-(define (m-prev-line)
-  (if (> (cur-line) 0)
-    (! *buf* line (- (? *buf* line) 1))
-    #f))
-
-(define (m-next-line)
-  (if (< (cur-line) (- (vector-length (? *buf* lines)) 1))
-    (! *buf* line (+ (? *buf* line) 1))
-    #f))
-
-(define (m-next-char)
-  (if (p-eol?)
-    #f
-    (! *buf* line-pos (+ (? *buf* line-pos) 1))))
-
-(define (m-prev-char)
-  (if (bol?)
-    #f
-    (! *buf* line-pos (- (? *buf* line-pos) 1))))
-
-(define (m-eol)
-  (! *buf* line-pos (string-length (cur-line-s))))
-
-(define (m-bol)
-  (! *buf* line-pos 0))
-
-(define (m-word dir)
-  (call/cc
-    (lambda (break)
-      (if (begin-word?) ;; bump past beginning of word if we're currently on one
-        (if (not (make-sym-eval 'm- dir '-char))
-          (break #f)))
-      (let loop ()
-        (if (not (begin-word?))
-          (begin (if (not (make-sym-eval 'm- dir '-char))
-                   (break #f))
-                 (loop)))))))
-
-(define (clamp-line)
-  (! *buf* line-pos (clamp 0 (- (string-length (cur-line-s)) 1) (? *buf* line-pos))))
-
 ;;;;
 
 (initscr)
 (cbreak)
 (noecho)
+(! *buf* cursors (list (make-cursor *buf*)))
 (let loop ()
-  (let ((c (wgetch (stdscr))))
+  (let ((c (wgetch (stdscr))) (main-cursor (car (? *buf* cursors))))
     (cond
       ((equal? c #\j)
-       (m-next-line))
+       (@ main-cursor m-next-line))
       ((equal? c #\k)
-       (m-prev-line))
+       (@ main-cursor m-prev-line))
       ((equal? c #\l)
-       (m-next-char))
+       (@ main-cursor m-next-char))
       ((equal? c #\h)
-       (m-prev-char))
+       (@ main-cursor m-prev-char))
       ((equal? c #\w)
-       (if (not (m-word 'next))
-         (if (m-next-line)
-           (begin (m-bol) (m-word 'next)))))
+       (if (not (@ main-cursor m-word 'next))
+         (if (@ main-cursor m-next-line)
+           (begin (@ main-cursor m-bol) (@ main-cursor m-word 'next)))))
       ((equal? c #\b)
-       (if (not (m-word 'prev))
-         (if (m-prev-line)
-           (begin (m-eol) (m-word 'prev)))))
+       (if (not (@ main-cursor m-word 'prev))
+         (if (@ main-cursor m-prev-line)
+           (begin (@ main-cursor m-eol) (@ main-cursor m-word 'prev)))))
       ((equal? c #\$)
-       (m-eol))
+       (@ main-cursor m-eol))
       ((equal? c #\0)
-       (m-bol))))
+       (@ main-cursor m-bol)))
 
-  (clamp-line)
+    (@ main-cursor clamp-to-line)
 
-  ;; draw
-  (for-n 0 (LINES)
-         draw-line)
-  (wmove (stdscr) (cur-line) (proper-line-pos))
-  (wrefresh (stdscr))
+    ;; draw
+    (for-n 0 (LINES)
+           draw-line)
+    (wmove (stdscr)
+           (? main-cursor line)
+           (@ main-cursor proper-line-pos (@ main-cursor cur-line-s)))
+    (wrefresh (stdscr)))
   (loop))
 
 (endwin)
