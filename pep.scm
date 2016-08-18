@@ -154,7 +154,10 @@
         (string-append str right-str) ; break out and TODO: return vector of new lines
         (if (or (= (char->integer c) KEY_BACKSPACE) (= (char->integer c) KEY_ALT_BACKSPACE))
           (begin
-            (loop (wgetch (stdscr)) (string-take str (- (string-length str) 2))))
+            (cursor 'set-line-pos! (- (cursor 'line-pos) 1))
+            (loop
+              (wgetch (stdscr))
+              (string-take str (- (string-length str) 2))))
           (begin
             (cond
               ((equal? c KEY_STAB)
