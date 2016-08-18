@@ -48,8 +48,11 @@
                (for-n 0 (LINES)
                       (lambda (i)
                         (draw-line (self 'get-line (+ (self 'scroll) i)) i)))
-               ((car (self 'cursors)) 'draw)
+               ((car (self 'cursors)) 'draw-cursor)
                (wrefresh (stdscr)))
+
+(define-method (*buf* 'replace-line self resend new-line line-i)
+               (vector-set! (self 'lines) line-i new-line))
 
 (define cursor (*the-root-object* 'clone))
 (cursor 'add-value-slot! 'buffer 'set-buffer! '())
@@ -133,7 +136,7 @@
                  c))
 
 ; TODO: actually draw a block so this works with multiple cursors
-(define-method (cursor 'draw self resend #!optional altstr)
+(define-method (cursor 'draw-cursor self resend #!optional altstr)
                (let ((str (if altstr
                             altstr
                             (self 'cur-line-s))))
@@ -143,13 +146,12 @@
 
 ;;;
 
-(define (insert-mode buf) ; returns a vector of the new lines
-  (let* ((main-cursor (car (buf 'cursors)))
-         (left-str (string-take (main-cursor 'cur-line-s) (main-cursor 'line-pos)))
-         (right-str (string-drop (main-cursor 'cur-line-s) (main-cursor 'line-pos))))
+(define (insert-mode cursor) ; returns a vector of the new lines
+  (let ((left-str (string-take (cursor 'cur-line-s) (cursor 'line-pos)))
+        (right-str (string-drop (cursor 'cur-line-s) (cursor 'line-pos))))
     (let loop ((c (wgetch (stdscr))) (str left-str))
       (if (= (char->integer c) KEY_ESCAPE)
-        #(str) ; break out and return vector of new lines
+        (string-append str right-str) ; break out and TODO: return vector of new lines
         (if (or (= (char->integer c) KEY_BACKSPACE) (= (char->integer c) KEY_ALT_BACKSPACE))
           (begin
             (loop (wgetch (stdscr)) (string-take str (- (string-length str) 2))))
@@ -160,11 +162,11 @@
                (set! c "\t")))
             (let ((newstr (string-append str (string c)))) ; meh - wish i didn't need this second let
               ;; redraw
-              (wmove (stdscr) (main-cursor 'line) 0)
-              (draw-line (string-append newstr right-str) (main-cursor 'line) #t)
+              (wmove (stdscr) (cursor 'line) 0)
+              (draw-line (string-append newstr right-str) (cursor 'line) #t)
 
-              (main-cursor 'set-line-pos! (+ (main-cursor 'line-pos) 1))
-              (main-cursor 'draw newstr)
+              (cursor 'set-line-pos! (+ (cursor 'line-pos) 1))
+              (cursor 'draw-cursor newstr)
 
               (loop (wgetch (stdscr)) newstr))))))))
 
@@ -178,7 +180,8 @@
     (let ((c (wgetch (stdscr))) (main-cursor (car (*buf* 'cursors))))
       (cond
         ((equal? c #\i)
-         (insert-mode buf))
+         (buf 'replace-line
+              (insert-mode main-cursor) (main-cursor 'line)))
         ((equal? c #\j)
          (main-cursor 'm-next-line))
         ((equal? c #\k)
@@ -187,6 +190,10 @@
          (main-cursor 'm-next-char))
         ((equal? c #\h)
          (main-cursor 'm-prev-char))
+        ((equal? c #\a)
+         (main-cursor 'm-next-char)
+         (buf 'replace-line
+              (insert-mode main-cursor) (main-cursor 'line)))
         ((equal? c #\w)
          (if (not (main-cursor 'm-word 'next))
            (if (main-cursor 'm-next-line)
