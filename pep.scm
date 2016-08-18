@@ -157,7 +157,7 @@
             (cursor 'set-line-pos! (- (cursor 'line-pos) 1))
             (loop
               (wgetch (stdscr))
-              (string-take str (- (string-length str) 2))))
+              (string-take str (- (string-length str) 1))))
           (begin
             (cond
               ((equal? c KEY_STAB)
