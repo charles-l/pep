@@ -9,7 +9,7 @@
   (max low (min up val)))
 
 (define (for-n start stop fn)
-  (map (cut fn <>) (iota (- stop start) start)))
+  (map fn (iota (- stop start) start)))
 
 (define (proper-line line) ; substitute weird characters out of a line
   (string-substitute "\t" tabstring line))
@@ -98,15 +98,21 @@
                  (self 'set-line! (+ (self 'line) 1))
                  #f))
 
+(define-method (cursor '%next-char self resend)
+               (self 'set-line-pos! (+ (self 'line-pos) 1)))
+
+(define-method (cursor '%prev-char self resend)
+               (self 'set-line-pos! (- (self 'line-pos) 1)))
+
 (define-method (cursor 'm-next-char self resend)
                (if (self 'p-eol?)
                  #f
-                 (self 'set-line-pos! (+ (self 'line-pos) 1))))
+                 (self '%next-char)))
 
 (define-method (cursor 'm-prev-char self resend)
                (if (self 'bol?)
                  #f
-                 (self 'set-line-pos! (- (self 'line-pos) 1))))
+                 (self '%prev-char)))
 
 (define-method (cursor 'm-eol self resend)
                (self 'set-line-pos! (string-length (self 'cur-line-s))))
@@ -154,7 +160,8 @@
         (string-append str right-str) ; break out and TODO: return vector of new lines
         (if (or (= (char->integer c) KEY_BACKSPACE) (= (char->integer c) KEY_ALT_BACKSPACE))
           (begin
-            (cursor 'set-line-pos! (- (cursor 'line-pos) 1))
+            (cursor '%prev-char)
+            (cursor 'draw-cursor)
             (loop
               (wgetch (stdscr))
               (string-take str (- (string-length str) 1))))
@@ -165,10 +172,9 @@
                (set! c "\t")))
             (let ((newstr (string-append str (string c)))) ; meh - wish i didn't need this second let
               ;; redraw
-              (wmove (stdscr) (cursor 'line) 0)
               (draw-line (string-append newstr right-str) (cursor 'line) #t)
 
-              (cursor 'set-line-pos! (+ (cursor 'line-pos) 1))
+              (cursor '%next-char)
               (cursor 'draw-cursor newstr)
 
               (loop (wgetch (stdscr)) newstr))))))))
@@ -184,7 +190,8 @@
       (cond
         ((equal? c #\i)
          (buf 'replace-line
-              (insert-mode main-cursor) (main-cursor 'line)))
+              (insert-mode main-cursor) (main-cursor 'line))
+         (draw-line (main-cursor 'cur-line-s) (main-cursor 'line) #t))
         ((equal? c #\j)
          (main-cursor 'm-next-line))
         ((equal? c #\k)
@@ -215,5 +222,6 @@
       (buf 'draw))
     (loop)))
 
+(*buf* 'draw)
 (command-mode *buf*)
 (endwin)
