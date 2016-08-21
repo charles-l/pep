@@ -1,4 +1,7 @@
-(use ncurses srfi-1 srfi-13 regex prometheus)
+;; docs: http://wiki.call-cc.org/eggref/4/ncurses
+(use ncurses srfi-1 srfi-13 regex prometheus vector-lib)
+
+;;; consts that aren't in ncurses
 
 (define KEY_ESCAPE 27)
 (define KEY_ALT_BACKSPACE 127)
@@ -11,10 +14,13 @@
 (define (for-n start stop fn)
   (map fn (iota (- stop start) start)))
 
-(define (proper-line line) ; substitute weird characters out of a line
-  (string-substitute "\t" tabstring line))
+(define (vector-delete v i)
+  (vector-append (vector-copy v 0 i)  (vector-copy v (+ i 1))))
 
 ;;; more specialized util
+
+(define (proper-line line) ; substitute weird characters out of a line
+  (string-substitute "\t" tabstring line))
 
 (define (draw-line str i #!optional dirty)
   (wmove (stdscr) i 0)
@@ -25,15 +31,23 @@
              (proper-line str)
              "~")))
 
+(define (make-pos cursor)
+  `((line ,(cursor 'line)) (line-pos ,(cursor 'line-pos))))
+
+(define (make-motion cursor movement)
+  (let ((c `(,(make-pos cursor))))
+    (cursor movement)
+    (append c `(,(make-pos cursor)))))
+
 ;;;
 
 (define tabstop 3)
 (define tabstring (list->string (make-list tabstop #\space)))
+(define dirty-screen #f) ; do we need to redraw. this is ugly on purpose.
 
 (define *buf* (*the-root-object* 'clone)) ; create main buffer
 (*buf* 'add-value-slot! 'cursors 'set-cursors! '())
 (*buf* 'add-value-slot! 'mode 'set-mode! 'command)
-(*buf* 'add-value-slot! 'dirty-screen 'set-dirty-screen! #f)
 (*buf* 'add-value-slot! 'lines 'set-lines! #("blah" "a" "b" "c" "some words on a line" "\ttabbed"))
 (*buf* 'add-value-slot! 'scroll 'set-scroll! 0)
 (define-method (*buf* 'get-line self resend i)
@@ -53,6 +67,10 @@
 
 (define-method (*buf* 'replace-line self resend new-line line-i)
                (vector-set! (self 'lines) line-i new-line))
+
+(define-method (*buf* 'delete-line self resend line-i)
+               (self 'set-lines! (vector-delete (self 'lines) line-i))
+               (set! dirty-screen #t))
 
 (define cursor (*the-root-object* 'clone))
 (cursor 'add-value-slot! 'buffer 'set-buffer! '())
@@ -198,6 +216,8 @@
          (main-cursor 'm-prev-line))
         ((equal? c #\l)
          (main-cursor 'm-next-char))
+        ((equal? c #\d)
+         (buf 'delete-line (main-cursor 'line)))
         ((equal? c #\h)
          (main-cursor 'm-prev-char))
         ((equal? c #\a)
@@ -219,6 +239,9 @@
 
       (main-cursor 'clamp-to-line)
 
+      (if dirty-screen
+        (wclear (stdscr))
+        (set! dirty-screen #f))
       (buf 'draw))
     (loop)))
 
