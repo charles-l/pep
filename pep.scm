@@ -15,7 +15,17 @@
   (map fn (iota (- stop start) start)))
 
 (define (vector-delete v i)
-  (vector-append (vector-copy v 0 i)  (vector-copy v (+ i 1))))
+  (vector-append (vector-copy v 0 i)
+                 (if (< i (- (vector-length v) 1))
+                   (vector-copy v (+ i 1))
+                   #())))
+
+(define (vector-insert v n i) ; TODO: dedup this
+  (vector-append (vector-copy v 0 i)
+                 (vector n)
+                 (if (< i (- (vector-length v) 1))
+                   (vector-copy v i)
+                   #())))
 
 ;;; more specialized util
 
@@ -43,7 +53,7 @@
 
 (define tabstop 3)
 (define tabstring (list->string (make-list tabstop #\space)))
-(define dirty-screen #f) ; do we need to redraw. this is ugly on purpose.
+(define dirty-screen #f) ; do we need to redraw? this is an ugly to set! on purpose.
 
 (define *buf* (*the-root-object* 'clone)) ; create main buffer
 (*buf* 'add-value-slot! 'cursors 'set-cursors! '())
@@ -51,12 +61,9 @@
 (*buf* 'add-value-slot! 'lines 'set-lines! #("blah" "a" "b" "c" "some words on a line" "\ttabbed"))
 (*buf* 'add-value-slot! 'scroll 'set-scroll! 0)
 (define-method (*buf* 'get-line self resend i)
-               (if (< i (- (self 'lines-length) 1))
+               (if (< i (self 'last-line))
                  (vector-ref (self 'lines) i)
                  #f))
-
-(define-method (*buf* 'lines-length self resend) ; size of lines array
-               (vector-length (self 'lines)))
 
 (define-method (*buf* 'draw self resend)
                (for-n 0 (LINES)
@@ -69,8 +76,17 @@
                (vector-set! (self 'lines) line-i new-line))
 
 (define-method (*buf* 'delete-line self resend line-i)
-               (self 'set-lines! (vector-delete (self 'lines) line-i))
+               (if (= (self 'last-line) 1) ; edge-case: only one line in buffer
+                 (self 'replace-line "" 0)
+                 (self 'set-lines! (vector-delete (self 'lines) line-i)))
                (set! dirty-screen #t))
+
+(define-method (*buf* 'insert-line self resend new-line line-i)
+               (self 'set-lines! (vector-insert (self 'lines) new-line line-i))
+               (set! dirty-screen #t))
+
+(define-method (*buf* 'last-line self resend)
+               (- (vector-length (self 'lines)) 1))
 
 (define cursor (*the-root-object* 'clone))
 (cursor 'add-value-slot! 'buffer 'set-buffer! '())
@@ -112,7 +128,7 @@
                  #f))
 
 (define-method (cursor 'm-next-line self resend)
-               (if (< (self 'line) (- ((self 'buffer) 'lines-length) 2))
+               (if (< (self 'line) (- ((self 'buffer) 'last-line) 1))
                  (self 'set-line! (+ (self 'line) 1))
                  #f))
 
@@ -141,7 +157,7 @@
 (define-method (cursor 'm-word self resend dir)
                (call/cc
                  (lambda (break)
-                   (if (self 'begin-word?) ;; bump past beginning of word if we're currently on one
+                   (if (self 'begin-word?) ; bump past beginning of word if we're currently on one
                      (if (not (self (symbol-append 'm- dir '-char)))
                        (break #f)))
                    (let loop ()
@@ -151,8 +167,14 @@
                               (loop)))))))
 
 (define-method (cursor 'clamp-to-line self resend)
+               (if (>= (self 'line) ((self 'buffer) 'last-line)) ; catch when cursor goes over edge (i.e. due to deletion of last line)
+                 (self 'set-line! (- ((self 'buffer) 'last-line) 1)))
                (self 'set-line-pos!
                      (clamp 0 (- (string-length (self 'cur-line-s)) 1) (self 'line-pos))))
+
+(define-method (cursor 'insert-line self resend)
+               ((self 'buffer) 'insert-line "" (+ (self 'line) 1))
+               (self 'm-next-line))
 
 (define-method (cursor 'new self resend buf)
                (let ((c (self 'clone)))
@@ -170,7 +192,7 @@
 
 ;;;
 
-(define (insert-mode cursor) ; returns a vector of the new lines
+(define (read-insert-line cursor) ; TODO: returns a vector of the new lines
   (let ((left-str (string-take (cursor 'cur-line-s) (cursor 'line-pos)))
         (right-str (string-drop (cursor 'cur-line-s) (cursor 'line-pos))))
     (let loop ((c (wgetch (stdscr))) (str left-str))
@@ -188,14 +210,16 @@
               ((equal? c KEY_STAB)
                (wclrtoeol (stdscr))
                (set! c "\t")))
-            (let ((newstr (string-append str (string c)))) ; meh - wish i didn't need this second let
-              ;; redraw
+            (let ((newstr (string-append str (string c))))
               (draw-line (string-append newstr right-str) (cursor 'line) #t)
 
               (cursor '%next-char)
               (cursor 'draw-cursor newstr)
 
               (loop (wgetch (stdscr)) newstr))))))))
+
+(define (insert-mode buf cursor)
+  (buf 'replace-line (read-insert-line cursor) (cursor 'line)))
 
 (initscr)
 (cbreak)
@@ -204,26 +228,27 @@
 
 (define (command-mode buf)
   (let loop ()
-    (let ((c (wgetch (stdscr))) (main-cursor (car (*buf* 'cursors))))
+    (let ((c (wgetch (stdscr))) (main-cursor (car (buf 'cursors))))
       (cond
         ((equal? c #\i)
-         (buf 'replace-line
-              (insert-mode main-cursor) (main-cursor 'line))
-         (draw-line (main-cursor 'cur-line-s) (main-cursor 'line) #t))
+         (insert-mode buf main-cursor))
         ((equal? c #\j)
          (main-cursor 'm-next-line))
         ((equal? c #\k)
          (main-cursor 'm-prev-line))
         ((equal? c #\l)
          (main-cursor 'm-next-char))
+        ((equal? c #\o)
+         (main-cursor 'insert-line)
+         (main-cursor 'm-bol)
+         (insert-mode buf main-cursor))
         ((equal? c #\d)
          (buf 'delete-line (main-cursor 'line)))
         ((equal? c #\h)
          (main-cursor 'm-prev-char))
         ((equal? c #\a)
          (main-cursor 'm-next-char)
-         (buf 'replace-line
-              (insert-mode main-cursor) (main-cursor 'line)))
+         (insert-mode buf main-cursor))
         ((equal? c #\w)
          (if (not (main-cursor 'm-word 'next))
            (if (main-cursor 'm-next-line)
