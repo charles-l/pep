@@ -32,6 +32,24 @@
 (define (proper-line line) ; substitute weird characters out of a line
   (string-substitute "\t" tabstring line #t))
 
+(define (make-pos cursor)
+  `((line ,(cursor 'line)) (line-pos ,(cursor 'line-pos))))
+
+(define (make-motion cursor movement)
+  (let ((c `(,(make-pos cursor))))
+    (cursor movement)
+    (append c `(,(make-pos cursor)))))
+
+; TODO: actually draw a block so this works with multiple cursors
+(define (draw-cursor cursor #!optional altstr)
+  (let ((str
+          (if altstr
+            altstr
+            (cursor 'cur-line-s))))
+    (wmove (stdscr)
+           (cursor 'line)
+           (cursor 'proper-line-pos str))))
+
 (define (draw-line str i #!optional dirty)
   (wmove (stdscr) i 0)
   (if dirty
@@ -41,13 +59,15 @@
              (proper-line str)
              "~")))
 
-(define (make-pos cursor)
-  `((line ,(cursor 'line)) (line-pos ,(cursor 'line-pos))))
-
-(define (make-motion cursor movement)
-  (let ((c `(,(make-pos cursor))))
-    (cursor movement)
-    (append c `(,(make-pos cursor)))))
+(define (draw-buf buf)
+  (if dirty-screen
+    (wclear (stdscr))
+    (set! dirty-screen #f))
+  (for-n 0 (LINES)
+         (lambda (i)
+           (draw-line (buf 'get-line (+ (buf 'scroll) i)) i)))
+  (draw-cursor (car (buf 'cursors)))
+  (wrefresh (stdscr)))
 
 ;;;
 
@@ -64,13 +84,6 @@
                (if (<= i (self 'last-line))
                  (vector-ref (self 'lines) i)
                  #f))
-
-(define-method (*buf* 'draw self resend)
-               (for-n 0 (LINES)
-                      (lambda (i)
-                        (draw-line (self 'get-line (+ (self 'scroll) i)) i)))
-               ((car (self 'cursors)) 'draw-cursor)
-               (wrefresh (stdscr)))
 
 (define-method (*buf* 'replace-line self resend new-line line-i)
                (vector-set! (self 'lines) line-i new-line))
@@ -173,23 +186,17 @@
                      (clamp 0 (- (string-length (self 'cur-line-s)) 1)
                             (self 'line-pos))))
 
-(define-method (cursor 'insert-line self resend)
-               ((self 'buffer) 'insert-line "" (+ (self 'line) 1))
-               (self 'm-next-line))
+(define-method (cursor 'insert-line self resend dir)
+               (if (equal? 'next dir)
+                (begin
+                 ((self 'buffer) 'insert-line "" (+ (self 'line) 1))
+                 (self 'm-next-line))
+                ((self 'buffer) 'insert-line "" (self 'line))))
 
 (define-method (cursor 'new self resend buf)
                (let ((c (self 'clone)))
                  (c 'set-buffer! buf)
                  c))
-
-; TODO: actually draw a block so this works with multiple cursors
-(define-method (cursor 'draw-cursor self resend #!optional altstr)
-               (let ((str (if altstr
-                            altstr
-                            (self 'cur-line-s))))
-                 (wmove (stdscr)
-                        (self 'line)
-                        (self 'proper-line-pos str))))
 
 ;;;
 
@@ -202,7 +209,7 @@
         (if (or (= (char->integer c) KEY_BACKSPACE) (= (char->integer c) KEY_ALT_BACKSPACE))
           (begin
             (cursor '%prev-char)
-            (cursor 'draw-cursor)
+            (draw-cursor cursor)
             (loop
               (wgetch (stdscr))
               (string-take str (- (string-length str) 1))))
@@ -215,11 +222,12 @@
               (draw-line (string-append newstr right-str) (cursor 'line) #t)
 
               (cursor '%next-char)
-              (cursor 'draw-cursor newstr)
+              (draw-cursor cursor newstr)
 
               (loop (wgetch (stdscr)) newstr))))))))
 
 (define (insert-mode buf cursor)
+  (draw-buf buf) ; redraw before entering insert mode
   (buf 'replace-line (read-insert-line cursor) (cursor 'line)))
 
 (initscr)
@@ -239,8 +247,12 @@
          (main-cursor 'm-prev-line))
         ((equal? c #\l)
          (main-cursor 'm-next-char))
+        ((equal? c #\O)
+         (main-cursor 'insert-line 'prev)
+         (main-cursor 'm-bol)
+         (insert-mode buf main-cursor))
         ((equal? c #\o)
-         (main-cursor 'insert-line)
+         (main-cursor 'insert-line 'next)
          (main-cursor 'm-bol)
          (insert-mode buf main-cursor))
         ((equal? c #\d)
@@ -264,13 +276,9 @@
          (main-cursor 'm-bol)))
 
       (main-cursor 'clamp-to-line)
-
-      (if dirty-screen
-        (wclear (stdscr))
-        (set! dirty-screen #f))
-      (buf 'draw))
+      (draw-buf buf))
     (loop)))
 
-(*buf* 'draw)
+(draw-buf *buf*)
 (command-mode *buf*)
 (endwin)
