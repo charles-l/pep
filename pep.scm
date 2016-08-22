@@ -30,7 +30,7 @@
 ;;; more specialized util
 
 (define (proper-line line) ; substitute weird characters out of a line
-  (string-substitute "\t" tabstring line))
+  (string-substitute "\t" tabstring line #t))
 
 (define (draw-line str i #!optional dirty)
   (wmove (stdscr) i 0)
@@ -58,10 +58,10 @@
 (define *buf* (*the-root-object* 'clone)) ; create main buffer
 (*buf* 'add-value-slot! 'cursors 'set-cursors! '())
 (*buf* 'add-value-slot! 'mode 'set-mode! 'command)
-(*buf* 'add-value-slot! 'lines 'set-lines! #("blah" "a" "b" "c" "some words on a line" "\ttabbed"))
+(*buf* 'add-value-slot! 'lines 'set-lines! #("blah" "a" "b" "c" "some words on a line" "\t\ttabbed"))
 (*buf* 'add-value-slot! 'scroll 'set-scroll! 0)
 (define-method (*buf* 'get-line self resend i)
-               (if (< i (self 'last-line))
+               (if (<= i (self 'last-line))
                  (vector-ref (self 'lines) i)
                  #f))
 
@@ -128,7 +128,7 @@
                  #f))
 
 (define-method (cursor 'm-next-line self resend)
-               (if (< (self 'line) (- ((self 'buffer) 'last-line) 1))
+               (if (<= (self 'line) ((self 'buffer) 'last-line))
                  (self 'set-line! (+ (self 'line) 1))
                  #f))
 
@@ -167,8 +167,8 @@
                               (loop)))))))
 
 (define-method (cursor 'clamp-to-line self resend)
-               (if (>= (self 'line) ((self 'buffer) 'last-line)) ; catch when cursor goes over edge (i.e. due to deletion of last line)
-                 (self 'set-line! (- ((self 'buffer) 'last-line) 1)))
+               (if (> (self 'line) ((self 'buffer) 'last-line)) ; catch when cursor goes over edge (i.e. due to deletion of last line)
+                 (self 'set-line! ((self 'buffer) 'last-line)))
                (self 'set-line-pos!
                      (clamp 0 (- (string-length (self 'cur-line-s)) 1) (self 'line-pos))))
 
