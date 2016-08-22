@@ -128,7 +128,7 @@
                  #f))
 
 (define-method (cursor 'm-next-line self resend)
-               (if (<= (self 'line) ((self 'buffer) 'last-line))
+               (if (< (self 'line) ((self 'buffer) 'last-line))
                  (self 'set-line! (+ (self 'line) 1))
                  #f))
 
@@ -170,7 +170,8 @@
                (if (> (self 'line) ((self 'buffer) 'last-line)) ; catch when cursor goes over edge (i.e. due to deletion of last line)
                  (self 'set-line! ((self 'buffer) 'last-line)))
                (self 'set-line-pos!
-                     (clamp 0 (- (string-length (self 'cur-line-s)) 1) (self 'line-pos))))
+                     (clamp 0 (- (string-length (self 'cur-line-s)) 1)
+                            (self 'line-pos))))
 
 (define-method (cursor 'insert-line self resend)
                ((self 'buffer) 'insert-line "" (+ (self 'line) 1))
