@@ -36,7 +36,7 @@
 (define (vector-insert v n i) ; TODO: dedup this
   (vector-append (vector-copy v 0 i)
                  (vector n)
-                 (if (< i (- (vector-length v) 1))
+                 (if (<= i (- (vector-length v) 1))
                    (vector-copy v i)
                    #())))
 
