@@ -3,10 +3,16 @@
 
 ;;; consts that aren't in ncurses
 
-(define KEY_ESCAPE 27)
-(define KEY_ALT_BACKSPACE 127)
+(define KEY_ESCAPE (integer->char 27))
+(define KEY_ALT_BACKSPACE (integer->char 127))
 
 ;;; general util - because this crap isn't implemented in the stdlib???
+
+(define (string-insert s t i) (string-replace s t i i))
+(define (string-remove s i)
+  (if (<= i 0)
+    #f
+    (string-replace s "" (- i 1) i)))
 
 (define (clamp low up val)
   (max low (min up val)))
@@ -29,6 +35,13 @@
 
 ;;; more specialized util
 
+
+;; bind a key to a command
+(define-syntax bind!
+  (syntax-rules ()
+                ((bind! <mode> <key> <body> ...) ; WARNING: gonna break hygenic macros for a second...
+                 (<mode> 'bind! <key> (eval '(lambda (cursor ch) <body> ...)))))) ; ... EWWWWW! YUCKY EVAL!
+
 (define (proper-line line) ; substitute weird characters out of a line
   (string-substitute "\t" tabstring line #t))
 
@@ -39,6 +52,14 @@
   (let ((c `(,(make-pos cursor))))
     (cursor movement)
     (append c `(,(make-pos cursor)))))
+
+(define (draw-init) ; initialize ncurses and stuff
+  (initscr)
+  (cbreak)
+  (noecho))
+
+(define (draw-finalize) ; clean up drawing stuff
+  (endwin))
 
 ; TODO: actually draw a block so this works with multiple cursors
 (define (draw-cursor cursor #!optional altstr)
@@ -62,7 +83,7 @@
 (define (draw-buf buf)
   (if dirty-screen
     (wclear (stdscr))
-    (set! dirty-screen #f))
+    (set! dirty-screen '()))
   (for-n 0 (LINES)
          (lambda (i)
            (draw-line (buf 'get-line (+ (buf 'scroll) i)) i)))
@@ -74,6 +95,20 @@
 (define tabstop 3)
 (define tabstring (list->string (make-list tabstop #\space)))
 (define dirty-screen #f) ; do we need to redraw? this is an ugly to set! on purpose.
+
+(define mode (*the-root-object* 'clone))
+(mode 'add-value-slot! 'binds 'set-binds! '())
+(mode 'add-value-slot! 'post-thunk 'set-post-thunk! (lambda (cursor) (void)))
+;; bind a thunk that accepts a cursor
+(define-method (mode 'bind! self resend k thunk)
+               (self 'set-binds!
+                     (append (self 'binds) `(,(cons k thunk)))))
+
+(define-method (mode 'get-bind self resend k)
+               (let ((p (assoc k (self 'binds))))
+                 (cdr (if p
+                        p
+                        (assoc 'else (self 'binds))))))
 
 (define *buf* (*the-root-object* 'clone)) ; create main buffer
 (*buf* 'add-value-slot! 'cursors 'set-cursors! '())
@@ -193,6 +228,11 @@
                  (self 'm-next-line))
                 ((self 'buffer) 'insert-line "" (self 'line))))
 
+(define-method (cursor 'replace-cur-line self resend new-str)
+               ((self 'buffer) 'replace-line
+                               new-str
+                               (self 'line)))
+
 (define-method (cursor 'new self resend buf)
                (let ((c (self 'clone)))
                  (c 'set-buffer! buf)
@@ -200,85 +240,68 @@
 
 ;;;
 
-(define (read-insert-line cursor) ; TODO: returns a vector of the new lines
-  (let ((left-str (string-take (cursor 'cur-line-s) (cursor 'line-pos)))
-        (right-str (string-drop (cursor 'cur-line-s) (cursor 'line-pos))))
-    (let loop ((c (wgetch (stdscr))) (str left-str))
-      (if (= (char->integer c) KEY_ESCAPE)
-        (string-append str right-str) ; break out and TODO: return vector of new lines
-        (if (or (= (char->integer c) KEY_BACKSPACE) (= (char->integer c) KEY_ALT_BACKSPACE))
-          (begin
-            (cursor '%prev-char)
-            (draw-cursor cursor)
-            (loop
-              (wgetch (stdscr))
-              (string-take str (- (string-length str) 1))))
-          (begin
-            (cond
-              ((equal? c KEY_STAB)
-               (wclrtoeol (stdscr))
-               (set! c "\t")))
-            (let ((newstr (string-append str (string c))))
-              (draw-line (string-append newstr right-str) (cursor 'line) #t)
-
-              (cursor '%next-char)
-              (draw-cursor cursor newstr)
-
-              (loop (wgetch (stdscr)) newstr))))))))
-
-(define (insert-mode buf cursor)
-  (draw-buf buf) ; redraw before entering insert mode
-  (buf 'replace-line (read-insert-line cursor) (cursor 'line)))
-
-(initscr)
-(cbreak)
-(noecho)
 (*buf* 'set-cursors! (list (cursor 'new *buf*)))
 
-(define (command-mode buf)
-  (let loop ()
-    (let ((c (wgetch (stdscr))) (main-cursor (car (buf 'cursors))))
-      (cond
-        ((equal? c #\i)
-         (insert-mode buf main-cursor))
-        ((equal? c #\j)
-         (main-cursor 'm-next-line))
-        ((equal? c #\k)
-         (main-cursor 'm-prev-line))
-        ((equal? c #\l)
-         (main-cursor 'm-next-char))
-        ((equal? c #\O)
-         (main-cursor 'insert-line 'prev)
-         (main-cursor 'm-bol)
-         (insert-mode buf main-cursor))
-        ((equal? c #\o)
-         (main-cursor 'insert-line 'next)
-         (main-cursor 'm-bol)
-         (insert-mode buf main-cursor))
-        ((equal? c #\d)
-         (buf 'delete-line (main-cursor 'line)))
-        ((equal? c #\h)
-         (main-cursor 'm-prev-char))
-        ((equal? c #\a)
-         (main-cursor 'm-next-char)
-         (insert-mode buf main-cursor))
-        ((equal? c #\w)
-         (if (not (main-cursor 'm-word 'next))
-           (if (main-cursor 'm-next-line)
-             (begin (main-cursor 'm-bol) (main-cursor 'm-word 'next)))))
-        ((equal? c #\b)
-         (if (not (main-cursor 'm-word 'prev))
-           (if (main-cursor 'm-prev-line)
-             (begin (main-cursor 'm-eol) (main-cursor 'm-word 'prev)))))
-        ((equal? c #\$)
-         (main-cursor 'm-eol))
-        ((equal? c #\0)
-         (main-cursor 'm-bol)))
+(define command-mode (mode 'clone))
+(define insert-mode (mode 'clone))
+(define cur-mode command-mode) ;TODO: do this more elegantly
 
-      (main-cursor 'clamp-to-line)
-      (draw-buf buf))
-    (loop)))
+;;; INSERT MODE
 
-(draw-buf *buf*)
-(command-mode *buf*)
-(endwin)
+(bind! insert-mode KEY_ESCAPE (set! cur-mode command-mode))
+(bind! insert-mode KEY_ALT_BACKSPACE
+       (let ((s (string-remove (cursor 'cur-line-s) (cursor 'line-pos))))
+         (if s
+           (begin (cursor 'replace-cur-line s)
+                  (cursor '%prev-char)))))
+(bind! insert-mode 'else
+       (cursor 'replace-cur-line
+               (string-insert (cursor 'cur-line-s)
+                              (string ch)
+                              (cursor 'line-pos)))
+       (cursor '%next-char))
+
+;;; COMMAND MODE
+
+(command-mode 'set-post-thunk! (lambda (cursor)
+                                 (cursor 'clamp-to-line)))
+(bind! command-mode #\i (set! cur-mode insert-mode)) ; TODO: use list of pairs for bind! macro
+(bind! command-mode #\h (cursor 'm-prev-char))
+(bind! command-mode #\j (cursor 'm-next-line))
+(bind! command-mode #\k (cursor 'm-prev-line))
+(bind! command-mode #\l (cursor 'm-next-char))
+(bind! command-mode #\O
+       (cursor 'insert-line 'prev)
+       (cursor 'm-bol)
+       (set! cur-mode insert-mode))
+(bind! command-mode #\o
+       (cursor 'insert-line 'next)
+       (cursor 'm-bol)
+       (set! cur-mode insert-mode))
+(bind! command-mode #\d
+       ((cursor 'buffer) 'delete-line (cursor 'line)))
+(bind! command-mode #\a
+       (cursor 'm-next-char)
+       (set! cur-mode insert-mode))
+(bind! command-mode #\w
+       (if (not (cursor 'm-word 'next))
+           (if (cursor 'm-next-line)
+             (begin (cursor 'm-bol) (cursor 'm-word 'next)))))
+(bind! command-mode #\b
+       (if (not (cursor 'm-word 'prev))
+           (if (cursor 'm-prev-line)
+             (begin (cursor 'm-eol) (cursor 'm-word 'prev)))))
+(bind! command-mode #\$ (cursor 'm-eol))
+(bind! command-mode #\0 (cursor 'm-bol))
+(bind! command-mode 'else (void))
+
+;;; MAIN LOOP
+
+(draw-init)
+(draw-buf *buf*) ; FIXME: UGLY: initial draw
+(let loop ()
+  (let ((c (wgetch (stdscr))) (main-cursor (car (*buf* 'cursors))))
+    ((cur-mode 'get-bind c) main-cursor c)
+    ((cur-mode 'post-thunk) main-cursor)
+    (draw-buf *buf*))
+  (loop))
