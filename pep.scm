@@ -1,4 +1,4 @@
-;; docs: http://wiki.call-cc.org/eggref/4/ncurses
+;;; docs: http://wiki.call-cc.org/eggref/4/ncurses
 (use ncurses srfi-1 srfi-13 regex prometheus vector-lib)
 
 ;;; consts that aren't in ncurses
@@ -238,22 +238,25 @@
                  (c 'set-buffer! buf)
                  c))
 
+(define-method (cursor 'backspace self resend)
+               (let ((s (string-remove (self 'cur-line-s) (self 'line-pos))))
+                 (if s
+                   (begin (self 'replace-cur-line s)
+                          (self '%prev-char))))) ; helper function to backspace
+
 ;;;
 
 (*buf* 'set-cursors! (list (cursor 'new *buf*)))
 
 (define command-mode (mode 'clone))
 (define insert-mode (mode 'clone))
-(define cur-mode command-mode) ;TODO: do this more elegantly
+(define cur-mode command-mode)
 
 ;;; INSERT MODE
 
 (bind! insert-mode KEY_ESCAPE (set! cur-mode command-mode))
-(bind! insert-mode KEY_ALT_BACKSPACE
-       (let ((s (string-remove (cursor 'cur-line-s) (cursor 'line-pos))))
-         (if s
-           (begin (cursor 'replace-cur-line s)
-                  (cursor '%prev-char)))))
+(bind! insert-mode KEY_BACKSPACE (cursor 'backspace))
+(bind! insert-mode KEY_ALT_BACKSPACE ((insert-mode 'get-bind KEY_BACKSPACE) cursor ch)) ; alias
 (bind! insert-mode 'else
        (cursor 'replace-cur-line
                (string-insert (cursor 'cur-line-s)
@@ -269,6 +272,8 @@
 (bind! command-mode #\h (cursor 'm-prev-char))
 (bind! command-mode #\j (cursor 'm-next-line))
 (bind! command-mode #\k (cursor 'm-prev-line))
+(bind! command-mode #\X (cursor 'backspace))
+(bind! command-mode #\x (cursor 'm-next-char) (cursor 'backspace))
 (bind! command-mode #\l (cursor 'm-next-char))
 (bind! command-mode #\O
        (cursor 'insert-line 'prev)
