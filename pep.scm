@@ -1,4 +1,11 @@
 ;;; docs: http://wiki.call-cc.org/eggref/4/ncurses
+
+; thoughts:
+; * could use a sparse array for large files? sparse strings for long lines?
+; * maybe pipe out to external command for syntax highlighting?
+; * extend vim grammar to include multiple cursors? or maybe just use regex with search.
+; * make modes have their own draw functions
+
 (use ncurses srfi-1 srfi-13 regex prometheus vector-lib)
 
 ;;; consts that aren't in ncurses
@@ -35,12 +42,10 @@
 
 ;;; more specialized util
 
-
-;; bind a key to a command
-(define-syntax bind!
+(define-syntax bind! ; bind a key to a command
   (syntax-rules ()
-                ((bind! <mode> <key> <body> ...) ; WARNING: gonna break hygenic macros for a second...
-                 (<mode> 'bind! <key> (eval '(lambda (cursor ch) <body> ...)))))) ; ... EWWWWW! YUCKY EVAL!
+                ((bind! <mode> <type> <key> <body> ...) ; WARNING: gonna break hygenic macros for a second...
+                 (<mode> 'bind! <type> <key> (eval '(lambda (cursor ch) <body> ...)))))) ; ... EWWWWW! YUCKY EVAL!
 
 (define (proper-line line) ; substitute weird characters out of a line
   (string-substitute "\t" tabstring line #t))
@@ -61,8 +66,7 @@
 (define (draw-finalize) ; clean up drawing stuff
   (endwin))
 
-; TODO: actually draw a block so this works with multiple cursors
-(define (draw-cursor cursor #!optional altstr)
+(define (draw-cursor cursor #!optional altstr) ; TODO: actually draw a block so this works with multiple cursors
   (let ((str
           (if altstr
             altstr
@@ -97,18 +101,26 @@
 (define dirty-screen #f) ; do we need to redraw? this is an ugly to set! on purpose.
 
 (define mode (*the-root-object* 'clone))
-(mode 'add-value-slot! 'binds 'set-binds! '())
+(mode 'add-value-slot! 'op-bindings 'set-op-bindings! '()) ; operator bindings
+(mode 'add-value-slot! 'motion-bindings 'set-motion-bindings! '()) ; motion bindings
+(mode 'add-value-slot! 'obj-bindings 'set-obj-bindings! '()) ; text object bindings
+(mode 'add-value-slot! 'misc-bindings 'set-misc-bindings! '()) ; misc bindings
 (mode 'add-value-slot! 'post-thunk 'set-post-thunk! (lambda (cursor) (void)))
 ;; bind a thunk that accepts a cursor
-(define-method (mode 'bind! self resend k thunk)
-               (self 'set-binds!
-                     (append (self 'binds) `(,(cons k thunk)))))
+(define-method (mode 'bind! self resend type k thunk)
+               (let* ((getter (symbol-append type '-bindings)) (setter (symbol-append 'set- getter '!)))
+                 (self setter (append (self getter) `(,(cons k thunk))))))
 
-(define-method (mode 'get-bind self resend k)
-               (let ((p (assoc k (self 'binds))))
+(define-method (mode 'all-binds self resend)
+               (apply append (map self (list 'op-bindings 'motion-bindings 'obj-bindings 'misc-bindings))))
+
+(define-method (mode 'get-bind self resend k #!optional type)
+               (let ((p (assoc k (self (if type
+                                         (symbol-append type '-bindings)
+                                         'all-binds)))))
                  (cdr (if p
                         p
-                        (assoc 'else (self 'binds))))))
+                        (assoc 'else (self 'all-binds))))))
 
 (define *buf* (*the-root-object* 'clone)) ; create main buffer
 (*buf* 'add-value-slot! 'cursors 'set-cursors! '())
@@ -254,10 +266,10 @@
 
 ;;; INSERT MODE
 
-(bind! insert-mode KEY_ESCAPE (set! cur-mode command-mode))
-(bind! insert-mode KEY_BACKSPACE (cursor 'backspace))
-(bind! insert-mode KEY_ALT_BACKSPACE ((insert-mode 'get-bind KEY_BACKSPACE) cursor ch)) ; alias
-(bind! insert-mode 'else
+(bind! insert-mode 'misc KEY_ESCAPE (set! cur-mode command-mode))
+(bind! insert-mode 'misc KEY_BACKSPACE (cursor 'backspace))
+(bind! insert-mode 'misc KEY_ALT_BACKSPACE ((insert-mode 'get-bind KEY_BACKSPACE) cursor ch)) ; alias
+(bind! insert-mode 'misc 'else
        (cursor 'replace-cur-line
                (string-insert (cursor 'cur-line-s)
                               (string ch)
@@ -268,37 +280,37 @@
 
 (command-mode 'set-post-thunk! (lambda (cursor)
                                  (cursor 'clamp-to-line)))
-(bind! command-mode #\i (set! cur-mode insert-mode)) ; TODO: use list of pairs for bind! macro
-(bind! command-mode #\h (cursor 'm-prev-char))
-(bind! command-mode #\j (cursor 'm-next-line))
-(bind! command-mode #\k (cursor 'm-prev-line))
-(bind! command-mode #\X (cursor 'backspace))
-(bind! command-mode #\x (cursor 'm-next-char) (cursor 'backspace))
-(bind! command-mode #\l (cursor 'm-next-char))
-(bind! command-mode #\O
+(bind! command-mode 'misc #\i (set! cur-mode insert-mode)) ; TODO: use list of pairs for bind! macro
+(bind! command-mode 'motion #\h (cursor 'm-prev-char))
+(bind! command-mode 'motion #\j (cursor 'm-next-line))
+(bind! command-mode 'motion #\k (cursor 'm-prev-line))
+(bind! command-mode 'motion #\l (cursor 'm-next-char))
+(bind! command-mode 'motion #\$ (cursor 'm-eol))
+(bind! command-mode 'motion #\0 (cursor 'm-bol))
+(bind! command-mode 'misc #\X (cursor 'backspace))
+(bind! command-mode 'misc #\x (cursor 'm-next-char) (cursor 'backspace))
+(bind! command-mode 'misc #\O
        (cursor 'insert-line 'prev)
        (cursor 'm-bol)
        (set! cur-mode insert-mode))
-(bind! command-mode #\o
+(bind! command-mode 'misc #\o
        (cursor 'insert-line 'next)
        (cursor 'm-bol)
        (set! cur-mode insert-mode))
-(bind! command-mode #\d
+(bind! command-mode 'op #\d
        ((cursor 'buffer) 'delete-line (cursor 'line)))
-(bind! command-mode #\a
+(bind! command-mode 'misc #\a
        (cursor 'm-next-char)
        (set! cur-mode insert-mode))
-(bind! command-mode #\w
+(bind! command-mode 'motion #\w
        (if (not (cursor 'm-word 'next))
            (if (cursor 'm-next-line)
              (begin (cursor 'm-bol) (cursor 'm-word 'next)))))
-(bind! command-mode #\b
+(bind! command-mode 'motion #\b
        (if (not (cursor 'm-word 'prev))
            (if (cursor 'm-prev-line)
              (begin (cursor 'm-eol) (cursor 'm-word 'prev)))))
-(bind! command-mode #\$ (cursor 'm-eol))
-(bind! command-mode #\0 (cursor 'm-bol))
-(bind! command-mode 'else (void))
+(bind! command-mode 'misc 'else (void))
 
 ;;; MAIN LOOP
 
