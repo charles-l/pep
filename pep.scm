@@ -4,7 +4,6 @@
 ; * could use a sparse array for large files? sparse strings for long lines?
 ; * maybe pipe out to external command for syntax highlighting?
 ; * extend vim grammar to include multiple cursors? or maybe just use regex with search.
-; * make modes have their own draw functions
 
 (use ncurses srfi-1 srfi-13 regex prometheus vector-lib)
 
@@ -47,6 +46,15 @@
        (set! x y)
        (set! y tmp)))))
 
+(define (read-to-vector filename)
+  (with-input-from-file filename
+                        (lambda ()
+                          (port-fold
+                            (lambda (l v)
+                              (vector-append v (vector l)))
+                            #()
+                            read-line))))
+
 ;;; more specialized util
 
 (define-syntax bind-textobj!
@@ -69,8 +77,8 @@
 
 (define-syntax with-do-motion
   (syntax-rules ()
-    ((with-do-motion <cursor> <range-binding> <expr>)
-     (let ((<range-binding> (make-range <cursor> (command-mode 'get-bind (get-char) #t) <cursor> #f)))
+    ((with-do-motion <char> <cursor> <range-binding> <expr>)
+     (let ((<range-binding> (make-range <cursor> (command-mode 'get-bind <char> #t) <cursor> #f)))
        <expr>))))
 
 (define (proper-line line) ; substitute weird characters out of a line
@@ -184,8 +192,11 @@
 
 (define-object *buf* (*the-root-object*)
                (cursors set-cursors! '())
-               (lines set-lines! #("blah" "a" "b" "c" "some words on a line" "\t\ttabbed"))
+               (lines set-lines! #(""))
                (scroll set-scroll! 0)
+
+               ((load-file self resend filename)
+                (self 'set-lines! (read-to-vector filename)))
 
                ((get-line self resend i)
                 (if (<= i (self 'last-line))
@@ -388,14 +399,24 @@
        (cursor 'm-bol)
        (set! cur-mode insert-mode))
 (bind! command-mode #\d
-       (with-do-motion cursor range
-                       ((cursor 'buffer) 'delete range)))
+       (let ((cch (get-char)))
+         (if (equal? ch cch)
+           ((cursor 'buffer) 'delete-line (cursor 'line))
+           (with-do-motion cch cursor range
+                           ((cursor 'buffer) 'delete range)))))
+(bind! command-mode #\c
+       ((command-mode 'get-bind #\d) cursor #\c)
+       (set! cur-mode insert-mode))
 (bind! command-mode #\a
        (cursor 'm-next-char)
        (set! cur-mode insert-mode))
 (bind! command-mode 'else (void))
 
 ;;; MAIN LOOP
+
+(let ((args (command-line-arguments)))
+  (if (not (null? args))
+    (*buf* 'load-file (car args))))
 
 (draw-init)
 (draw-buf *buf*) ; FIXME: UGLY: initial draw
