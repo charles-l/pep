@@ -42,30 +42,47 @@
 
 (define-syntax swap
   (syntax-rules ()
-                ((swap x y)
-                 (let ((tmp x))
-                   (set! x y)
-                   (set! y tmp)))))
+    ((swap x y)
+     (let ((tmp x))
+       (set! x y)
+       (set! y tmp)))))
 
 ;;; more specialized util
 
+(define-syntax bind-textobj!
+  (syntax-rules ()
+    ((bind-textobj! <mode> <key> <body> ...)
+     (<mode> 'bind-textobj! <key> (eval '(lambda (cursor ch) <body> ...))))))
+
 (define-syntax bind! ; bind a key to a command
   (syntax-rules ()
-                ((bind! <mode> <type> <key> <body> ...) ; WARNING: gonna break hygenic macros for a second...
-                 (<mode> 'bind! <type> <key> (eval '(lambda (cursor ch) <body> ...)))))) ; ... EWWWWW! YUCKY EVAL!
+    ((bind! <mode> <key> <body> ...)
+     (<mode> 'bind! <key> (eval '(lambda (cursor ch) <body> ...)))))) ; yucky eval to break hygenic macros
+
+(define-syntax bind-motion!
+  (syntax-rules ()
+    ((bind-motion! <mode> <key> <direct-expr> <chain-expr>)
+     (begin (bind! <mode> <key> <direct-expr>)
+            (bind-textobj! <mode> <key> <chain-expr>)))
+    ((bind-motion! <mode> <key> <expr>)
+     (bind-motion! <mode> <key> <expr> <expr>))))
+
+(define-syntax with-do-motion
+  (syntax-rules ()
+    ((with-do-motion <cursor> <range-binding> <expr>)
+     (let ((<range-binding> (make-range <cursor> (command-mode 'get-bind (get-char) #t) <cursor> #f)))
+       <expr>))))
 
 (define (proper-line line) ; substitute weird characters out of a line
   (string-substitute "\t" tabstring line #t))
 
 (define (make-range cursor move-thunk . args)
-  (let ((start `(,((cursor 'p) 'clone))))
-    (endwin)
-    (print ((car start) 'x))
-    (print ((car start) 'y))
+  (let ((start ((cursor 'p) 'really-clone)))
     (apply move-thunk args)
-    (print ((car start) 'x))
-    (print ((car start) 'y))
-    (append (start `(,((cursor 'p) 'clone))))))
+    (let ((end ((cursor 'p) 'really-clone)))
+      (if (start 'eq? end)
+        #f
+        `(,start ,end ,cursor)))))
 
 (define (draw-init) ; initialize ncurses and stuff
   (initscr)
@@ -112,45 +129,55 @@
 (define tabstring (list->string (make-list tabstop #\space)))
 (define dirty-screen #f) ; do we need to redraw? this is an ugly to set! on purpose.
 
-(define *pos* (*the-root-object* 'clone)) ; xy pair
-(*pos* 'add-value-slot! 'x 'setx! 0)
-(*pos* 'add-value-slot! 'y 'sety! 0)
+(define-object *pos* (*the-root-object*) ; xy pair
+               (x setx! 0)
+               (y sety! 0)
 
-(define-method (*pos* 'inc! self resend axis #!optional amount)
-               (let ((v (if amount amount 1)))
-                 (self (symbol-append 'set axis '!) (+ (self axis) v))))
+               ((inc! self resend axis #!optional amount)
+                (let ((v (if amount amount 1)))
+                  (self (symbol-append 'set axis '!) (+ (self axis) v))))
 
-(define-method (*pos* 'dec! self resend axis #!optional amount)
-               (let ((v (if amount amount 1)))
-                 (self (symbol-append 'set axis '!) (- (self axis) v))))
+               ((dec! self resend axis #!optional amount)
+                (let ((v (if amount amount 1)))
+                  (self (symbol-append 'set axis '!) (- (self axis) v))))
 
-(define-method (*pos* 'make self resend x y)
-               (let ((r (*pos* 'clone)))
-                 (r 'setx! x)
-                 (r 'sety! y)
-                 r))
+               ((really-clone self resend) ; heh
+                (let ((r (self 'clone)))
+                  (r 'setx! (r 'x)) ; if we don't do this, 'x points at the parent slot and will update with it
+                  (r 'sety! (r 'y)) ; same for y
+                  r))
+
+               ((eq? self resend other)
+                (and (= (self 'y) (other 'y))
+                     (= (self 'x) (other 'x))))
+
+               ((< self resend other)
+                (or (< (self 'y) (other 'y))
+                    (and (= (self 'y) (other 'y))
+                         (< (self 'x) (other 'x)))))
+
+               ((make self resend x y)
+                (let ((r (*pos* 'clone)))
+                  (r 'setx! x)
+                  (r 'sety! y)
+                  r)))
 
 (define-object *mode* (*the-root-object*)
-               (op-bindings set-op-bindings! '()) ; operator key bindings
-               (motion-bindings set-motion-bindings! '()) ; motion key bindings
-               (obj-bindings set-obj-bindings! '()) ; text object bindings (not included in 'all-bindings)
-               (misc-bindings set-misc-bindings! '()) ; misc bindings
+               (bindings set-bindings! '()) ; key bindings
+               (textobj-bindings set-textobj-bindings! '()) ; text object bindings (not accessible unless in op chain)
                (post-thunk set-post-thunk! (lambda (cursor) (void))) ; thunk called directly before drawing every loop (use for cleanup)
 
-               ((bind! self resend type k thunk) ;; bind a thunk (thunk gets passed a cursor)
-                (let* ((getter (symbol-append type '-bindings)) (setter (symbol-append 'set- getter '!)))
-                  (self setter (append (self getter) `(,(cons k thunk))))))
+               ((bind! self resend k thunk) ; bind a thunk (thunk gets passed a cursor)
+                (self 'set-bindings! (append (self 'bindings) `(,(cons k thunk)))))
 
-               ((all-binds self resend)
-                (apply append (map self (list 'op-bindings 'motion-bindings 'misc-bindings))))
+               ((bind-textobj! self resend k thunk) ; bind a thunk (thunk gets passed a cursor)
+                (self 'set-textobj-bindings! (append (self 'textobj-bindings) `(,(cons k thunk)))))
 
-               ((get-bind self resend k #!optional type)
-                (let ((p (assoc k (self (if type
-                                          (symbol-append type '-bindings)
-                                          'all-binds)))))
-                  (cdr (if p
-                         p
-                         (assoc 'else (self 'all-binds)))))))
+               ((get-bind self resend k #!optional text-obj)
+                (let ((p (assoc k (self (if text-obj
+                                          'textobj-bindings
+                                          'bindings)))))
+                  (cdr (if p p (assoc 'else (self 'bindings)))))))
 
 (define-object *buf* (*the-root-object*)
                (cursors set-cursors! '())
@@ -172,19 +199,13 @@
                 (set! dirty-screen #t))
 
                ((delete self resend range)
-                (let* ((start (car range))
-                       (end (cadr range)))
-                  (endwin)
-                  (print (start 'x))
-                  (print (start 'y))
-                  (print (end 'x))
-                  (print (end 'y))
-                  (exit)
-                  (cond
-                    ((= (start 'y) (end 'y))
-                     (self 'replace-line (string-replace (self 'get-line (start 'y)) "" (start 'x) (end 'x)) (start 'y))))
-                  (caddr range) 'go start)
-                (set! dirty-screen #t))
+                (if range
+                  (let* ((start (car range))
+                         (end (cadr range)))
+                    (if (= (start 'y) (end 'y))
+                      (self 'replace-line (string-replace (self 'get-line (start 'y)) "" (start 'x) (end 'x)) (start 'y)))
+                    ((caddr range) 'go start))
+                  (set! dirty-screen #t)))
 
                ((insert-line self resend new-line line-i)
                 (self 'set-lines! (vector-insert (self 'lines) new-line line-i))
@@ -219,7 +240,9 @@
                 ((self 'buffer) 'get-line (self 'line)))
 
                ((cur-char self resend)
-                (string-ref (self 'cur-line-s) (self 'line-pos)))
+                (if (self 'p-eol?)
+                  #\space ; WARNING: I didn't think this bit through. It might not work.
+                  (string-ref (self 'cur-line-s) (self 'line-pos))))
 
                ((prev-char self resend)
                 (if (> (self 'line-pos) 0)
@@ -286,7 +309,8 @@
                       (if (not (self 'begin-word?))
                         (begin (if (not (self (symbol-append 'm- dir '-char)))
                                  (break #f))
-                               (loop)))))))
+                               (loop))
+                        (break #t))))))
 
                ((clamp-to-line self resend)
                 (if (> (self 'line) ((self 'buffer) 'last-line)) ; catch when cursor goes over edge (i.e. due to deletion of last line)
@@ -319,10 +343,10 @@
 
 ;;; INSERT MODE
 
-(bind! insert-mode 'misc KEY_ESCAPE (set! cur-mode command-mode))
-(bind! insert-mode 'misc KEY_BACKSPACE (cursor 'backspace))
-(bind! insert-mode 'misc KEY_ALT_BACKSPACE ((insert-mode 'get-bind KEY_BACKSPACE) cursor ch)) ; alias
-(bind! insert-mode 'misc 'else
+(bind! insert-mode KEY_ESCAPE (set! cur-mode command-mode))
+(bind! insert-mode KEY_BACKSPACE (cursor 'backspace))
+(bind! insert-mode KEY_ALT_BACKSPACE ((insert-mode 'get-bind KEY_BACKSPACE) cursor ch)) ; alias
+(bind! insert-mode 'else
        (cursor 'replace-cur-line
                (string-insert (cursor 'cur-line-s)
                               (string ch)
@@ -333,38 +357,40 @@
 
 (command-mode 'set-post-thunk! (lambda (cursor)
                                  (cursor 'clamp-to-line)))
-(bind! command-mode 'misc #\i (set! cur-mode insert-mode)) ; TODO: use list of pairs for bind! macro
-(bind! command-mode 'motion #\h (cursor 'm-prev-char))
-(bind! command-mode 'motion #\j (cursor 'm-next-line))
-(bind! command-mode 'motion #\k (cursor 'm-prev-line))
-(bind! command-mode 'motion #\l (cursor 'm-next-char))
-(bind! command-mode 'motion #\$ (cursor 'm-eol))
-(bind! command-mode 'motion #\0 (cursor 'm-bol))
-(bind! command-mode 'misc #\X (cursor 'backspace))
-(bind! command-mode 'misc #\x (cursor 'm-next-char) (cursor 'backspace))
-(bind! command-mode 'misc #\O
+(bind! command-mode #\i (set! cur-mode insert-mode)) ; TODO: use list of pairs for bind! macro
+(bind-motion! command-mode #\h (cursor 'm-prev-char))
+(bind-motion! command-mode #\j (cursor 'm-next-line))
+(bind-motion! command-mode #\k (cursor 'm-prev-line))
+(bind-motion! command-mode #\l (cursor 'm-next-char))
+(bind-motion! command-mode #\$ (cursor 'm-eol))
+(bind-motion! command-mode #\0 (cursor 'm-bol))
+(bind-motion! command-mode #\w
+              (if (not (cursor 'm-word 'next))
+                (if (cursor 'm-next-line)
+                  (begin (cursor 'm-bol) (cursor 'm-word 'next))))
+              (cursor 'm-word 'next))
+(bind-motion! command-mode #\b
+              (if (not (cursor 'm-word 'prev))
+                (if (cursor 'm-prev-line)
+                  (begin (cursor 'm-eol) (cursor 'm-word 'prev))))
+              (cursor 'm-word 'prev))
+(bind! command-mode #\X (cursor 'backspace))
+(bind! command-mode #\x (cursor 'm-next-char) (cursor 'backspace))
+(bind! command-mode #\O
        (cursor 'insert-line 'prev)
        (cursor 'm-bol)
        (set! cur-mode insert-mode))
-(bind! command-mode 'misc #\o
+(bind! command-mode #\o
        (cursor 'insert-line 'next)
        (cursor 'm-bol)
        (set! cur-mode insert-mode))
-(bind! command-mode 'op #\d
-       ((cursor 'buffer) 'delete
-                         (make-range cursor (command-mode 'get-bind (get-char) 'motion) cursor #f)))
-(bind! command-mode 'misc #\a
+(bind! command-mode #\d
+       (with-do-motion cursor range
+                       ((cursor 'buffer) 'delete range)))
+(bind! command-mode #\a
        (cursor 'm-next-char)
        (set! cur-mode insert-mode))
-(bind! command-mode 'motion #\w
-       (if (not (cursor 'm-word 'next))
-         (if (cursor 'm-next-line)
-           (begin (cursor 'm-bol) (cursor 'm-word 'next)))))
-(bind! command-mode 'motion #\b
-       (if (not (cursor 'm-word 'prev))
-         (if (cursor 'm-prev-line)
-           (begin (cursor 'm-eol) (cursor 'm-word 'prev)))))
-(bind! command-mode 'misc 'else (void))
+(bind! command-mode 'else (void))
 
 ;;; MAIN LOOP
 
