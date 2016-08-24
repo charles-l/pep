@@ -40,9 +40,9 @@
                    (vector-copy v i)
                    #())))
 
-(define-syntax swap
+(define-syntax swap!
   (syntax-rules ()
-    ((swap x y)
+    ((swap! x y)
      (let ((tmp x))
        (set! x y)
        (set! y tmp)))))
@@ -82,7 +82,10 @@
     (let ((end ((cursor 'p) 'really-clone)))
       (if (start 'eq? end)
         #f
-        `(,start ,end ,cursor)))))
+        (begin
+          (if (end '< start)
+            (swap! start end))
+          `(,start ,end ,cursor))))))
 
 (define (draw-init) ; initialize ncurses and stuff
   (initscr)
