@@ -5,7 +5,7 @@
 ; * maybe pipe out to external command for syntax highlighting?
 ; * extend vim grammar to include multiple cursors? or maybe just use regex with search.
 
-(use ncurses srfi-1 srfi-13 regex prometheus vector-lib)
+(use ncurses srfi-1 srfi-13 regex prometheus vector-lib extras ports)
 
 ;;; consts that aren't in ncurses
 
@@ -54,6 +54,15 @@
                               (vector-append v (vector l)))
                             #()
                             read-line))))
+
+(define (write-from-vector vector filename)
+  (with-output-to-file filename
+                       (lambda ()
+                         (vector-for-each
+                           (lambda (i e)
+                             (display e)
+                             (newline))
+                           vector))))
 
 ;;; more specialized util
 
@@ -419,6 +428,7 @@
 (bind! command-mode #\a
        (cursor 'm-next-char)
        (set! cur-mode insert-mode))
+(bind! command-mode #\: (write-from-vector ((cursor 'buffer) 'lines) "pepout"))
 (bind! command-mode 'else (void))
 
 ;;; MAIN LOOP
