@@ -109,7 +109,7 @@
             altstr
             (cursor 'cur-line-s))))
     (wmove (stdscr)
-           (cursor 'line)
+           (- (cursor 'line) ((cursor 'buffer) 'scroll))
            (cursor 'proper-line-pos str))))
 
 (define (draw-line str i #!optional dirty)
@@ -130,6 +130,14 @@
            (draw-line (buf 'get-line (+ (buf 'scroll) i)) i)))
   (draw-cursor (car (buf 'cursors)))
   (wrefresh (stdscr)))
+
+(define (scroll-to cursor)
+  (let ((buf (cursor 'buffer)))
+    (cond
+      ((>= (cursor 'line) (+ (buf 'scroll) (LINES)))
+       (buf 'set-scroll! (+ (buf 'scroll) 1)))
+      ((< (cursor 'line) (buf 'scroll))
+       (buf 'set-scroll! (cursor 'line))))))
 
 (define (get-char)
   (wgetch (stdscr)))
@@ -370,8 +378,9 @@
 ;;; COMMAND MODE
 
 (command-mode 'set-post-thunk! (lambda (cursor)
+                                 (scroll-to cursor)
                                  (cursor 'clamp-to-line)))
-(bind! command-mode #\i (set! cur-mode insert-mode)) ; TODO: use list of pairs for bind! macro
+(bind! command-mode #\i (set! cur-mode insert-mode))
 (bind-motion! command-mode #\h (cursor 'm-prev-char))
 (bind-motion! command-mode #\j (cursor 'm-next-line))
 (bind-motion! command-mode #\k (cursor 'm-prev-line))
