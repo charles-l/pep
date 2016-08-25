@@ -11,6 +11,7 @@
 
 (define KEY_ESCAPE (integer->char 27))
 (define KEY_ALT_BACKSPACE (integer->char 127))
+(define KEY_LINEFEED #\newline) ; enter key
 
 ;;; general util - because this crap isn't implemented in the stdlib???
 
@@ -107,6 +108,7 @@
 (define (draw-init) ; initialize ncurses and stuff
   (initscr)
   (cbreak)
+  ;(raw) ; catch ctrl-c
   (noecho))
 
 (define (draw-finalize) ; clean up drawing stuff
@@ -224,7 +226,7 @@
                 (vector-set! (self 'lines) line-i new-line))
 
                ((delete-line self resend line-i)
-                (if (= (self 'last-line) 1) ; edge-case: only one line in buffer
+                (if (= (self 'last-line) 0) ; edge-case: only one line in buffer
                   (self 'replace-line "" 0)
                   (self 'set-lines! (vector-delete (self 'lines) line-i)))
                 (set! dirty-screen #t))
@@ -358,11 +360,15 @@
                   (c 'set-buffer! buf)
                   c))
 
-               ((backspace self resend) ; helper function to backspace
+               ((backspace self resend #!optional delete-line) ; helper function to backspace
                 (let ((s (string-remove (self 'cur-line-s) (self 'line-pos))))
                   (if s
                     (begin (self 'replace-cur-line s)
-                           (self '%prev-char))))))
+                           (self '%prev-char))
+                    (if delete-line
+                      (begin ((self 'buffer) 'delete-line (self 'line))
+                             (self 'm-prev-line)
+                             (self 'm-eol)))))))
 
 ;;;
 
@@ -375,8 +381,9 @@
 ;;; INSERT MODE
 
 (bind! insert-mode KEY_ESCAPE (set! cur-mode command-mode))
-(bind! insert-mode KEY_BACKSPACE (cursor 'backspace))
+(bind! insert-mode KEY_BACKSPACE (cursor 'backspace #t))
 (bind! insert-mode KEY_ALT_BACKSPACE ((insert-mode 'get-bind KEY_BACKSPACE) cursor ch)) ; alias
+(bind! insert-mode KEY_LINEFEED (cursor 'insert-line 'next) (cursor 'm-bol))
 (bind! insert-mode 'else
        (cursor 'replace-cur-line
                (string-insert (cursor 'cur-line-s)
