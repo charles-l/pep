@@ -345,6 +345,12 @@
                                (loop))
                         (break #t))))))
 
+               ((scroll-to-top self resend)
+                ((self 'p) 'sety! ((self 'buffer) 'scroll)))
+
+               ((scroll-to-bottom self resend)
+                ((self 'p) 'sety! (+ ((self 'buffer) 'scroll) (LINES) -1)))
+
                ((clamp-to-line self resend)
                 (if (> (self 'line) ((self 'buffer) 'last-line)) ; catch when cursor goes over edge (i.e. due to deletion of last line)
                   ((self 'p) 'sety! ((self 'buffer) 'last-line)))
@@ -436,6 +442,8 @@
        (cursor 'm-next-char)
        (set! cur-mode insert-mode))
 (bind! command-mode #\: (write-from-vector ((cursor 'buffer) 'lines) "pepout"))
+(bind! command-mode #\H (cursor 'scroll-to-top))
+(bind! command-mode #\L (cursor 'scroll-to-bottom))
 (bind! command-mode 'else (void))
 
 ;;; MAIN LOOP
