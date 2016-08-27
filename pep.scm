@@ -12,6 +12,8 @@
 (define KEY_ESCAPE (integer->char 27))
 (define KEY_ALT_BACKSPACE (integer->char 127))
 (define KEY_LINEFEED #\newline) ; enter key
+(define KEY_CTRL_F (integer->char 6))
+(define KEY_CTRL_B (integer->char 2))
 
 ;;; general util - because this crap isn't implemented in the stdlib???
 
@@ -142,7 +144,7 @@
   (draw-cursor (car (buf 'cursors)))
   (wrefresh (stdscr)))
 
-(define (scroll-to cursor)
+(define (fix-scroll cursor)
   (let ((buf (cursor 'buffer)))
     (cond
       ((>= (cursor 'line) (+ (buf 'scroll) (LINES)))
@@ -245,7 +247,26 @@
                 (set! dirty-screen #t))
 
                ((last-line self resend)
-                (- (vector-length (self 'lines)) 1)))
+                (- (vector-length (self 'lines)) 1))
+
+               ((scroll-to-cursor self resend dir cursor)
+                (cond
+                  ((equal? dir 'top)
+                   (self 'set-scroll! (cursor 'line)))
+                  ((equal? dir 'bottom)
+                   (if (>= (cursor 'line) (- (LINES) 1))
+                     ((cursor 'buffer) 'set-scroll! (- (cursor 'line) (LINES)))))))
+
+               ((screen-move self resend dir cursor)
+                (cond
+                  ((equal? dir 'next)
+                   (cursor 'm-cursor 'bottom)
+                   (self 'scroll-to-cursor 'top cursor)
+                   (cursor 'm-cursor 'bottom))
+                  ((equal? dir 'prev)
+                   (cursor 'm-cursor 'top)
+                   (self 'scroll-to-cursor 'bottom cursor)
+                   (cursor 'm-cursor 'top)))))
 
 (define-object *cursor* (*the-root-object*)
                (buffer set-buffer! '())
@@ -345,11 +366,14 @@
                                (loop))
                         (break #t))))))
 
-               ((scroll-to-top self resend)
-                ((self 'p) 'sety! ((self 'buffer) 'scroll)))
-
-               ((scroll-to-bottom self resend)
-                ((self 'p) 'sety! (+ ((self 'buffer) 'scroll) (LINES) -1)))
+               ((m-cursor self resend dir)
+                ((self 'p) 'sety! (cond
+                                    ((equal? dir 'top)
+                                     ((self 'buffer) 'scroll))
+                                    ((equal? dir 'bottom)
+                                     (+ ((self 'buffer) 'scroll) (LINES) -1))
+                                    ((equal? dir 'middle)
+                                     (+ ((self 'buffer) 'scroll) (inexact->exact (floor (/ (LINES) 2))))))))
 
                ((clamp-to-line self resend)
                 (if (> (self 'line) ((self 'buffer) 'last-line)) ; catch when cursor goes over edge (i.e. due to deletion of last line)
@@ -400,7 +424,7 @@
 ;;; COMMAND MODE
 
 (command-mode 'set-post-thunk! (lambda (cursor)
-                                 (scroll-to cursor)
+                                 (fix-scroll cursor)
                                  (cursor 'clamp-to-line)))
 (bind! command-mode #\i (set! cur-mode insert-mode))
 (bind-motion! command-mode #\h (cursor 'm-prev-char))
@@ -442,8 +466,16 @@
        (cursor 'm-next-char)
        (set! cur-mode insert-mode))
 (bind! command-mode #\: (write-from-vector ((cursor 'buffer) 'lines) "pepout"))
-(bind! command-mode #\H (cursor 'scroll-to-top))
-(bind! command-mode #\L (cursor 'scroll-to-bottom))
+(bind! command-mode #\z (let ((ch (get-char)))
+                          (cond ((equal? ch #\t)
+                                 ((cursor 'buffer) 'scroll-to-cursor 'top cursor))
+                                ((equal? ch #\b)
+                                 ((cursor 'buffer) 'scroll-to-cursor 'bottom cursor)))))
+(bind! command-mode #\H (cursor 'm-cursor 'top))
+(bind! command-mode #\M (cursor 'm-cursor 'middle))
+(bind! command-mode #\L (cursor 'm-cursor 'bottom))
+(bind! command-mode KEY_CTRL_F ((cursor 'buffer) 'screen-move 'next cursor))
+(bind! command-mode KEY_CTRL_B ((cursor 'buffer) 'screen-move 'prev cursor))
 (bind! command-mode 'else (void))
 
 ;;; MAIN LOOP
