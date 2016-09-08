@@ -371,7 +371,10 @@
                                     ((equal? dir 'top)
                                      ((self 'buffer) 'scroll))
                                     ((equal? dir 'bottom)
-                                     (+ ((self 'buffer) 'scroll) (LINES) -1))
+                                     (+ ((self 'buffer) 'scroll)
+                                        (min (LINES)
+                                             (- (vector-length ((self 'buffer) 'lines)) (self 'line)))
+                                        -1))
                                     ((equal? dir 'middle)
                                      (+ ((self 'buffer) 'scroll) (inexact->exact (floor (/ (LINES) 2))))))))
 
